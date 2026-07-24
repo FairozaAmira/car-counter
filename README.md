@@ -98,8 +98,11 @@ broker.
 
 ```bash
 make lint
+make lint-fix
+make format-check
 make typecheck
 make test
+make test-coverage
 make check
 ```
 

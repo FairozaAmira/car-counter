@@ -1,4 +1,4 @@
-.PHONY: install lock run analyze producer consumer test test-broker lint format typecheck check docker-up docker-down
+.PHONY: install lock run analyze producer consumer test test-coverage test-broker lint lint-fix format format-check typecheck check docker-up docker-down
 
 install:
 	uv sync --locked
@@ -21,19 +21,28 @@ consumer:
 test:
 	uv run pytest -m "not broker"
 
+test-coverage:
+	uv run pytest -m "not broker" --cov --cov-report=term-missing --cov-report=xml
+
 test-broker:
 	uv run pytest -m broker
 
 lint:
 	uv run ruff check .
 
+lint-fix:
+	uv run ruff check --fix .
+
 format:
 	uv run ruff format .
+
+format-check:
+	uv run ruff format --check .
 
 typecheck:
 	uv run mypy src
 
-check: lint typecheck test
+check: lint format-check typecheck test
 
 docker-up:
 	docker compose up --build
