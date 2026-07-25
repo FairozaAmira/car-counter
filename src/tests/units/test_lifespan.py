@@ -71,3 +71,33 @@ async def test_lifespan_fails_closed_when_redis_is_unavailable(
             raise AssertionError("Application should not start.")
 
     assert redis.closed
+
+
+async def test_lifespan_fails_open_when_redis_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify optional limiting permits startup while logging degradation."""
+    redis = FakeRedis(fail_ping=True)
+    monkeypatch.setattr("src.main.Redis.from_url", lambda *_args, **_kwargs: redis)
+    application = FastAPI()
+    application.state.settings = Settings(
+        rate_limit_enabled=True,
+        rate_limit_redis_url="redis://test",
+        rate_limit_fail_open=True,
+    )
+
+    async with lifespan(application):
+        assert application.state.rate_limiter is not None
+
+    assert redis.closed
+    assert "Rate-limit backend unavailable during startup" in caplog.text
+
+
+async def test_lifespan_without_rate_limiting() -> None:
+    """Verify startup and shutdown need no Redis resource when disabled."""
+    application = FastAPI()
+    application.state.settings = Settings(rate_limit_enabled=False)
+
+    async with lifespan(application):
+        assert not hasattr(application.state, "redis_client")

@@ -199,7 +199,7 @@ make ci
 
 `make test` excludes broker-marked tests. Run `make test-broker` with Kafka available.
 Coverage measures `src` application code, excludes `src/tests`, writes
-`coverage.xml`, and enforces 85%.
+`coverage.xml`, and enforces 100% statement and branch coverage.
 
 ## Releases
 

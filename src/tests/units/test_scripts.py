@@ -121,3 +121,40 @@ def test_serve_cli_uses_runtime_settings(monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert calls[0]["host"] == "127.0.0.1"
     assert calls[0]["port"] == 9000
+
+
+def test_kafka_producer_main_uses_parsed_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the producer entry point parses files and returns its exit code."""
+    received: list[list[Path]] = []
+
+    async def fake_run(paths: list[Path]) -> int:
+        """Record parsed paths and return a failure exit code."""
+        received.append(paths)
+        return 1
+
+    monkeypatch.setattr(kafka_producer, "run", fake_run)
+    monkeypatch.setattr("sys.argv", ["kafka-producer", "traffic.txt"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        kafka_producer.main()
+
+    assert exc_info.value.code == 1
+    assert received == [[Path("traffic.txt")]]
+
+
+def test_kafka_consumer_main_runs_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify the consumer entry point submits its worker coroutine."""
+    called: list[bool] = []
+
+    def fake_asyncio_run(coroutine: object) -> None:
+        """Close and record the worker coroutine."""
+        called.append(True)
+        coroutine.close()  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(kafka_consumer.asyncio, "run", fake_asyncio_run)
+
+    kafka_consumer.main()
+
+    assert called == [True]

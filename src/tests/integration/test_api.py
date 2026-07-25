@@ -1,8 +1,10 @@
+from fastapi.middleware.cors import CORSMiddleware
 from httpx import ASGITransport, AsyncClient
 from redis.exceptions import ConnectionError
 
 from src.config import Settings
 from src.main import app, create_app
+from src.services.rate_limit import RedisRateLimiter
 
 VALID = """\
 2021-12-01T05:00:00 1
@@ -120,3 +122,53 @@ async def test_readiness_respects_rate_limit_failure_policy() -> None:
     assert degraded.status_code == 200
     assert degraded.json()["rate_limit"] == "degraded"
     assert unavailable.status_code == 503
+
+
+def test_create_app_configures_explicit_cors() -> None:
+    """Verify configured origins install the CORS middleware."""
+    cors_app = create_app(Settings(cors_origins=("https://client.example",)))
+    no_cors_app = create_app(Settings(cors_origins=()))
+
+    assert any(middleware.cls is CORSMiddleware for middleware in cors_app.user_middleware)
+    assert all(middleware.cls is not CORSMiddleware for middleware in no_cors_app.user_middleware)
+
+
+async def test_upload_rate_limit_returns_retry_after_header() -> None:
+    """Verify API rate-limit failures use the documented HTTP contract."""
+
+    class Backend:
+        """Provide a deterministic shared counter."""
+
+        def __init__(self) -> None:
+            self.count = 0
+
+        async def incr(self, _key: str) -> int:
+            self.count += 1
+            return self.count
+
+        async def expire(self, _key: str, _seconds: int) -> bool:
+            return True
+
+    limited_app = create_app(
+        Settings(
+            rate_limit_enabled=True,
+            rate_limit_redis_url="redis://test",
+            rate_limit_upload_requests=1,
+        ),
+    )
+    limited_app.state.rate_limiter = RedisRateLimiter(Backend(), 60, False)
+    transport = ASGITransport(app=limited_app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        accepted = await client.post(
+            "/api/v1/traffic/analyze",
+            files={"file": ("traffic.txt", VALID, "text/plain")},
+        )
+        rejected = await client.post(
+            "/api/v1/traffic/analyze",
+            files={"file": ("traffic.txt", VALID, "text/plain")},
+        )
+
+    assert accepted.status_code == 200
+    assert rejected.status_code == 429
+    assert int(rejected.headers["Retry-After"]) >= 1

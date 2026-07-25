@@ -64,5 +64,5 @@ def main() -> None:
     raise SystemExit(asyncio.run(run(args.files)))
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - exercised through main()
     main()

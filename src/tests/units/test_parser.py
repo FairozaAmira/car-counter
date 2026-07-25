@@ -8,7 +8,7 @@ from src.services.parser import parse_traffic_text
 
 def test_parse_sorts_records_and_accepts_whitespace() -> None:
     records = parse_traffic_text(
-        "2021-12-01T05:30:00   12\n2021-12-01T05:00:00 5\n",
+        "2021-12-01T05:30:00   12\n\n2021-12-01T05:00:00 5\n",
     )
 
     assert [record.timestamp for record in records] == [

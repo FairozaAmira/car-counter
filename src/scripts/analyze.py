@@ -40,5 +40,5 @@ def main() -> None:
     print(result.model_dump_json(indent=2))
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - exercised through main()
     main()

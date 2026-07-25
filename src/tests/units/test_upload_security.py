@@ -54,3 +54,52 @@ async def test_upload_rejects_binary_content() -> None:
         await service.analyze_upload(upload("traffic.txt", b"bad\x00data"))
 
     assert captured.value.status_code == 415
+
+
+def test_upload_service_rejects_invalid_size_configuration() -> None:
+    """Verify maximum upload size must be positive."""
+    with pytest.raises(ValueError, match="upload_max_bytes"):
+        TrafficAnalysisService(upload_max_bytes=0)
+
+
+async def test_upload_rejects_invalid_utf8() -> None:
+    """Verify undecodable content produces the stable encoding error."""
+    service = TrafficAnalysisService()
+
+    with pytest.raises(UploadValidationError) as captured:
+        await service.analyze_upload(upload("traffic.txt", b"\xff"))
+
+    assert captured.value.code == "invalid_encoding"
+
+
+async def test_batch_rejects_invalid_concurrency() -> None:
+    """Verify batch concurrency must be positive."""
+    with pytest.raises(ValueError, match="concurrency"):
+        await TrafficAnalysisService().analyze_uploads([], concurrency=0)
+
+
+def test_safe_filename_handles_missing_and_invalid_names() -> None:
+    """Verify response filenames always have a safe non-empty value."""
+    service = TrafficAnalysisService()
+    missing = UploadFile(
+        filename=None,
+        file=BytesIO(b""),
+        headers={"content-type": "text/plain"},
+    )
+    invalid = upload("???", b"")
+
+    assert service.safe_filename(missing, index=2) == "upload-3.txt"
+    with pytest.raises(UploadValidationError) as captured:
+        service.safe_filename(invalid)
+
+    assert captured.value.code == "invalid_filename"
+
+
+async def test_upload_rejects_unsupported_mime_type() -> None:
+    """Verify a permitted extension cannot bypass MIME validation."""
+    service = TrafficAnalysisService()
+
+    with pytest.raises(UploadValidationError) as captured:
+        await service.analyze_upload(upload("traffic.txt", b"content", "application/pdf"))
+
+    assert captured.value.code == "unsupported_media_type"
