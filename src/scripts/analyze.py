@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 from src.services.traffic import TrafficAnalysisService
+from src.utils.files import read_text_file
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,7 +36,7 @@ def main() -> None:
         TrafficCounterError: If its traffic records are invalid.
     """
     args = build_parser().parse_args()
-    content = args.file.read_text(encoding="utf-8")
+    content = read_text_file(args.file)
     result = TrafficAnalysisService().analyze_text(content)
     print(result.model_dump_json(indent=2))
 

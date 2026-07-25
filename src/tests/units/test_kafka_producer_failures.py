@@ -7,6 +7,7 @@ from src.config import Settings
 from src.schemas.kafka import KafkaAnalysisResult
 from src.schemas.traffic import ErrorDetail, ProcessingStatus, TrafficRecord
 from src.services.kafka_producer import KafkaProducerService
+from src.utils.errors import ErrorCode, KafkaProducerInitializationError
 
 VALID_TRAFFIC = """\
 2021-01-01T00:00:00 1
@@ -18,13 +19,16 @@ VALID_TRAFFIC = """\
 class RecordingProducer:
     """Record producer lifecycle and optionally fail when publishing."""
 
-    def __init__(self, *, fail_publish: bool = False) -> None:
+    def __init__(self, *, fail_publish: bool = False, fail_start: bool = False) -> None:
         self.events: list[str] = []
         self.sent: list[tuple[str, bytes, bytes]] = []
         self.fail_publish = fail_publish
+        self.fail_start = fail_start
 
     async def start(self) -> None:
         """Record startup."""
+        if self.fail_start:
+            raise RuntimeError("producer unavailable")
         self.events.append("start")
 
     async def stop(self) -> None:
@@ -53,6 +57,17 @@ async def test_producer_lifecycle_is_idempotent_and_requires_start() -> None:
     await service.stop()
 
     assert producer.events == ["start", "stop"]
+
+
+async def test_producer_start_uses_standard_initialization_error() -> None:
+    """Verify producer startup failures use the standard error catalog."""
+    producer = RecordingProducer(fail_start=True)
+    service = KafkaProducerService(Settings(), producer_factory=lambda **_: producer)
+
+    with pytest.raises(KafkaProducerInitializationError) as captured:
+        await service.start()
+
+    assert captured.value.code == ErrorCode.KAFKA_PRODUCER_INITIALIZATION
 
 
 async def test_producer_publishes_result_event() -> None:

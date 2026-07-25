@@ -11,8 +11,9 @@ from aiokafka import AIOKafkaProducer
 from src.config import Settings
 from src.schemas.kafka import KafkaAnalysisRequest, KafkaAnalysisResult, KafkaPublishItem
 from src.schemas.traffic import ErrorDetail, ProcessingStatus, TrafficRecord
-from src.services.errors import TrafficCounterError
 from src.services.parser import parse_traffic_text
+from src.utils.errors import ErrorCode, KafkaProducerInitializationError, TrafficCounterError
+from src.utils.files import read_text_file_async
 
 
 class KafkaProducerService:
@@ -37,16 +38,20 @@ class KafkaProducerService:
             None.
 
         Raises:
-            KafkaError: If the producer cannot connect.
+            KafkaProducerInitializationError: If the producer cannot connect.
         """
         if self._producer is not None:
             return
-        self._producer = self._producer_factory(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
-            enable_idempotence=True,
-            request_timeout_ms=self._settings.kafka_request_timeout_ms,
-        )
-        await self._producer.start()
+        try:
+            self._producer = self._producer_factory(
+                bootstrap_servers=self._settings.kafka_bootstrap_servers,
+                enable_idempotence=True,
+                request_timeout_ms=self._settings.kafka_request_timeout_ms,
+            )
+            await self._producer.start()
+        except Exception as exc:
+            self._producer = None
+            raise KafkaProducerInitializationError() from exc
 
     async def stop(self) -> None:
         """Close the shared Kafka producer.
@@ -135,7 +140,7 @@ class KafkaProducerService:
             None.
         """
         try:
-            content = await asyncio.to_thread(path.read_text, encoding="utf-8")
+            content = await read_text_file_async(path)
             records = parse_traffic_text(content)
             request_id = await self.publish_records(path.name, records)
             return KafkaPublishItem(
@@ -153,13 +158,13 @@ class KafkaProducerService:
             return KafkaPublishItem(
                 filename=path.name,
                 status=ProcessingStatus.FAILED,
-                error=ErrorDetail(code="file_read_error", message=str(exc)),
+                error=ErrorDetail(code=ErrorCode.FILE_READ_ERROR, message=str(exc)),
             )
         except Exception as exc:
             return KafkaPublishItem(
                 filename=path.name,
                 status=ProcessingStatus.FAILED,
-                error=ErrorDetail(code="kafka_publish_error", message=str(exc)),
+                error=ErrorDetail(code=ErrorCode.KAFKA_PUBLISH_ERROR, message=str(exc)),
             )
 
     async def publish_files(

@@ -13,8 +13,14 @@ from src.config import Settings
 from src.schemas.kafka import KafkaAnalysisRequest, KafkaAnalysisResult
 from src.schemas.traffic import ErrorDetail, ProcessingStatus
 from src.services.analyzer import analyze_traffic
-from src.services.errors import TrafficCounterError
 from src.services.kafka_producer import KafkaProducerService
+from src.utils.errors import (
+    InvalidJsonRequestError,
+    InvalidRequestBodyError,
+    KafkaConsumerActionError,
+    KafkaConsumerInitializationError,
+    TrafficCounterError,
+)
 
 
 class KafkaConsumerService:
@@ -41,24 +47,28 @@ class KafkaConsumerService:
             None.
 
         Raises:
-            KafkaError: If either Kafka client cannot start.
+            KafkaProducerInitializationError: If the result producer cannot start.
+            KafkaConsumerInitializationError: If the consumer cannot initialize.
         """
         if self._consumer is not None:
             return
-        self._consumer = self._consumer_factory(
-            self._settings.kafka_request_topic,
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
-            group_id=self._settings.kafka_consumer_group,
-            enable_auto_commit=False,
-            auto_offset_reset="earliest",
-        )
+        try:
+            self._consumer = self._consumer_factory(
+                self._settings.kafka_request_topic,
+                bootstrap_servers=self._settings.kafka_bootstrap_servers,
+                group_id=self._settings.kafka_consumer_group,
+                enable_auto_commit=False,
+                auto_offset_reset="earliest",
+            )
+        except Exception as exc:
+            raise KafkaConsumerInitializationError() from exc
         await self._result_producer.start()
         try:
             await self._consumer.start()
-        except Exception:
+        except Exception as exc:
             await self._result_producer.stop()
             self._consumer = None
-            raise
+            raise KafkaConsumerInitializationError() from exc
 
     async def stop(self) -> None:
         """Close the request consumer and result producer.
@@ -93,22 +103,25 @@ class KafkaConsumerService:
 
         Raises:
             RuntimeError: If the service has not started.
-            KafkaError: If polling or message processing fails.
+            KafkaConsumerActionError: If polling or message processing fails.
         """
         consumer = self._require_started()
-        while not stop_event.is_set():
-            messages = await consumer.getmany(
-                timeout_ms=self._settings.kafka_consumer_poll_timeout_ms,
-                max_records=self._settings.kafka_consumer_max_records,
-            )
-            if not messages:
-                continue
-            await asyncio.gather(
-                *(
-                    self._process_partition(partition, records)
-                    for partition, records in messages.items()
-                ),
-            )
+        try:
+            while not stop_event.is_set():
+                messages = await consumer.getmany(
+                    timeout_ms=self._settings.kafka_consumer_poll_timeout_ms,
+                    max_records=self._settings.kafka_consumer_max_records,
+                )
+                if not messages:
+                    continue
+                await asyncio.gather(
+                    *(
+                        self._process_partition(partition, records)
+                        for partition, records in messages.items()
+                    ),
+                )
+        except Exception as exc:
+            raise KafkaConsumerActionError() from exc
 
     async def _process_partition(
         self,
@@ -136,12 +149,16 @@ class KafkaConsumerService:
         """
         try:
             request = KafkaAnalysisRequest.model_validate_json(raw_value)
-        except (ValidationError, ValueError) as exc:
+        except (ValidationError, ValueError):
+            invalid_json_error = InvalidJsonRequestError()
             result = KafkaAnalysisResult(
                 request_id=uuid4(),
                 filename="unknown",
                 status=ProcessingStatus.FAILED,
-                error=ErrorDetail(code="invalid_event", message=str(exc)),
+                error=ErrorDetail(
+                    code=invalid_json_error.code,
+                    message=invalid_json_error.message,
+                ),
             )
         else:
             try:
@@ -152,12 +169,16 @@ class KafkaConsumerService:
                     status=ProcessingStatus.COMPLETED,
                     result=analysis,
                 )
-            except TrafficCounterError as exc:
+            except TrafficCounterError:
+                invalid_request_error = InvalidRequestBodyError()
                 result = KafkaAnalysisResult(
                     request_id=request.request_id,
                     filename=request.filename,
                     status=ProcessingStatus.FAILED,
-                    error=ErrorDetail(code=exc.code, message=exc.message),
+                    error=ErrorDetail(
+                        code=invalid_request_error.code,
+                        message=invalid_request_error.message,
+                    ),
                 )
 
         await self._result_producer.publish_result(result)

@@ -1,8 +1,8 @@
 import pytest
 from redis.exceptions import ConnectionError
 
-from src.services.errors import RateLimitExceededError
 from src.services.rate_limit import RedisRateLimiter
+from src.utils.errors import RateLimitExceededError
 
 
 class FakeRateLimitBackend:

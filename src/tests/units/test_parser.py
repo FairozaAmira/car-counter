@@ -2,8 +2,8 @@ from datetime import datetime
 
 import pytest
 
-from src.services.errors import InputValidationError
 from src.services.parser import parse_traffic_text
+from src.utils.errors import InputValidationError
 
 
 def test_parse_sorts_records_and_accepts_whitespace() -> None:

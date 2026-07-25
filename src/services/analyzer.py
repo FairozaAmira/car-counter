@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 from src.schemas.traffic import AnalysisResult, DailyTotal, LeastCarsPeriod, TrafficRecord
-from src.services.errors import AnalysisError
+from src.utils.errors import AnalysisError, ErrorCode
 
 HALF_HOUR = timedelta(minutes=30)
 PERIOD_LENGTH = timedelta(minutes=90)
@@ -12,7 +12,10 @@ def analyze_traffic(records: list[TrafficRecord]) -> AnalysisResult:
     """Calculate all outputs required by the coding challenge."""
 
     if not records:
-        raise AnalysisError("empty_input", "At least one traffic record is required.")
+        raise AnalysisError(
+            ErrorCode.EMPTY_INPUT,
+            "At least one traffic record is required.",
+        )
 
     ordered = sorted(records, key=lambda record: record.timestamp)
     total_cars = sum(record.car_count for record in ordered)
@@ -40,7 +43,7 @@ def analyze_traffic(records: list[TrafficRecord]) -> AnalysisResult:
 
     if not windows:
         raise AnalysisError(
-            "no_contiguous_period",
+            ErrorCode.NO_CONTIGUOUS_PERIOD,
             "No three records form a contiguous 1.5-hour period.",
         )
 

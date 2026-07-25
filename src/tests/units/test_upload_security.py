@@ -3,8 +3,9 @@ from io import BytesIO
 import pytest
 from fastapi import UploadFile
 
-from src.services.errors import UploadValidationError
 from src.services.traffic import TrafficAnalysisService
+from src.utils.errors import UploadValidationError
+from src.utils.files import safe_upload_filename
 
 
 def upload(filename: str, content: bytes, content_type: str = "text/plain") -> UploadFile:
@@ -80,7 +81,6 @@ async def test_batch_rejects_invalid_concurrency() -> None:
 
 def test_safe_filename_handles_missing_and_invalid_names() -> None:
     """Verify response filenames always have a safe non-empty value."""
-    service = TrafficAnalysisService()
     missing = UploadFile(
         filename=None,
         file=BytesIO(b""),
@@ -88,9 +88,9 @@ def test_safe_filename_handles_missing_and_invalid_names() -> None:
     )
     invalid = upload("???", b"")
 
-    assert service.safe_filename(missing, index=2) == "upload-3.txt"
+    assert safe_upload_filename(missing, index=2) == "upload-3.txt"
     with pytest.raises(UploadValidationError) as captured:
-        service.safe_filename(invalid)
+        safe_upload_filename(invalid)
 
     assert captured.value.code == "invalid_filename"
 

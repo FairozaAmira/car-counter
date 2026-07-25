@@ -4,7 +4,7 @@ import pytest
 
 from src.schemas.traffic import TrafficRecord
 from src.services.analyzer import analyze_traffic
-from src.services.errors import AnalysisError
+from src.utils.errors import AnalysisError
 
 
 def record(timestamp: str, count: int) -> TrafficRecord:

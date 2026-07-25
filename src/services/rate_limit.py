@@ -5,7 +5,7 @@ from typing import Protocol
 
 from redis.exceptions import RedisError
 
-from src.services.errors import RateLimitExceededError
+from src.utils.errors import RateLimitExceededError
 
 logger = logging.getLogger(__name__)
 

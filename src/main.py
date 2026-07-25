@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
@@ -12,8 +13,12 @@ from src.config import Settings, get_settings
 from src.middleware.request_context import RequestContextMiddleware
 from src.routers.traffic import router as traffic_router
 from src.schemas.traffic import ErrorDetail
-from src.services.errors import RateLimitExceededError, TrafficCounterError
 from src.services.rate_limit import RedisRateLimiter
+from src.utils.errors import (
+    InvalidRequestBodyError,
+    RateLimitExceededError,
+    TrafficCounterError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +187,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=exception.status_code,
             content={"detail": detail.model_dump()},
             headers=headers,
+        )
+
+    @application.exception_handler(RequestValidationError)
+    async def request_validation_error_handler(
+        _request: Request,
+        _exception: RequestValidationError,
+    ) -> JSONResponse:
+        """Map invalid request bodies to the standard error response.
+
+        Args:
+            _request: Current HTTP request.
+            _exception: FastAPI request validation failure.
+
+        Returns:
+            A standardized HTTP 422 response.
+
+        Raises:
+            None.
+        """
+        exception = InvalidRequestBodyError()
+        detail = ErrorDetail(code=exception.code, message=exception.message)
+        return JSONResponse(
+            status_code=exception.status_code,
+            content={"detail": detail.model_dump()},
         )
 
     return application

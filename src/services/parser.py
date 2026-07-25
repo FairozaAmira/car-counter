@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import ValidationError
 
 from src.schemas.traffic import TrafficRecord
-from src.services.errors import InputValidationError
+from src.utils.errors import ErrorCode, InputValidationError
 
 TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
@@ -22,7 +22,7 @@ def parse_traffic_text(content: str) -> list[TrafficRecord]:
         fields = line.split()
         if len(fields) != 2:
             raise InputValidationError(
-                "invalid_record",
+                ErrorCode.INVALID_RECORD,
                 f"Line {line_number} must contain a timestamp and car count.",
             )
 
@@ -31,7 +31,7 @@ def parse_traffic_text(content: str) -> list[TrafficRecord]:
             timestamp = datetime.strptime(timestamp_text, TIMESTAMP_FORMAT)
         except ValueError as exc:
             raise InputValidationError(
-                "invalid_timestamp",
+                ErrorCode.INVALID_TIMESTAMP,
                 f"Line {line_number} has an invalid timestamp.",
             ) from exc
 
@@ -39,13 +39,13 @@ def parse_traffic_text(content: str) -> list[TrafficRecord]:
             car_count = int(count_text)
         except ValueError as exc:
             raise InputValidationError(
-                "invalid_car_count",
+                ErrorCode.INVALID_CAR_COUNT,
                 f"Line {line_number} has an invalid car count.",
             ) from exc
 
         if timestamp in timestamps:
             raise InputValidationError(
-                "duplicate_timestamp",
+                ErrorCode.DUPLICATE_TIMESTAMP,
                 f"Line {line_number} duplicates timestamp {timestamp_text}.",
             )
 
@@ -53,7 +53,7 @@ def parse_traffic_text(content: str) -> list[TrafficRecord]:
             record = TrafficRecord(timestamp=timestamp, car_count=car_count)
         except ValidationError as exc:
             raise InputValidationError(
-                "invalid_car_count",
+                ErrorCode.INVALID_CAR_COUNT,
                 f"Line {line_number} has a negative car count.",
             ) from exc
 
@@ -61,6 +61,9 @@ def parse_traffic_text(content: str) -> list[TrafficRecord]:
         records.append(record)
 
     if not records:
-        raise InputValidationError("empty_input", "The input file contains no traffic records.")
+        raise InputValidationError(
+            ErrorCode.EMPTY_INPUT,
+            "The input file contains no traffic records.",
+        )
 
     return sorted(records, key=lambda record: record.timestamp)

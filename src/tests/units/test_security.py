@@ -8,8 +8,8 @@ from src.dependencies.security import (
     authenticate_request,
     enforce_upload_rate_limit,
 )
-from src.services.errors import AuthenticationError
 from src.services.rate_limit import RedisRateLimiter
+from src.utils.errors import AuthenticationError
 
 
 def request_for(

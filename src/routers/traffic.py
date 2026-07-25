@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, UploadFile
 from src.config import Settings, get_settings
 from src.controllers.traffic import TrafficController
 from src.dependencies.security import enforce_upload_rate_limit
-from src.schemas.traffic import AnalysisResult, BatchAnalysisResponse
+from src.schemas.traffic import AnalysisResponse, BatchAnalysisResponse
 from src.services.traffic import TrafficAnalysisService
 
 router = APIRouter(prefix="/api/v1/traffic", tags=["traffic"])
@@ -35,7 +35,7 @@ def get_traffic_controller(
 
 @router.post(
     "/analyze",
-    response_model=AnalysisResult,
+    response_model=AnalysisResponse,
     summary="Analyze one traffic file",
     description="Validates and analyzes one UTF-8 traffic counter text file.",
     responses={
@@ -50,7 +50,7 @@ def get_traffic_controller(
 async def analyze_file(
     file: Annotated[UploadFile, File(description="Traffic counter text file")],
     controller: Annotated[TrafficController, Depends(get_traffic_controller)],
-) -> AnalysisResult:
+) -> AnalysisResponse:
     """Analyze one uploaded traffic file.
 
     Args:

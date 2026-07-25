@@ -1,3 +1,6 @@
+from datetime import datetime
+from uuid import UUID
+
 from fastapi.middleware.cors import CORSMiddleware
 from httpx import ASGITransport, AsyncClient
 from redis.exceptions import ConnectionError
@@ -13,6 +16,16 @@ VALID = """\
 """
 
 
+def assert_post_response_metadata(payload: dict[str, object]) -> None:
+    """Verify common POST response identifiers and timing metadata."""
+    assert UUID(str(payload["id"])).version == 4
+    datetime.strptime(str(payload["createdAt"]), "%d-%m-%Y %H:%M:%S")
+    time_taken = payload["timeTaken"]
+    assert isinstance(time_taken, float)
+    assert time_taken >= 0
+    assert time_taken == round(time_taken, 2)
+
+
 async def test_single_file_endpoint() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
@@ -21,7 +34,13 @@ async def test_single_file_endpoint() -> None:
         )
 
     assert response.status_code == 200
-    assert response.json()["total_cars"] == 6
+    payload = response.json()
+    assert payload["total_cars"] == 6
+    assert payload["daily_totals"][0]["date"] == "01-12-2021"
+    assert payload["top_half_hours"][0]["timestamp"] == "01-12-2021 06:00:00"
+    assert payload["least_cars_period"]["start"] == "01-12-2021 05:00:00"
+    assert payload["least_cars_period"]["end"] == "01-12-2021 06:30:00"
+    assert_post_response_metadata(payload)
 
 
 async def test_single_file_endpoint_returns_domain_error() -> None:
@@ -33,6 +52,18 @@ async def test_single_file_endpoint_returns_domain_error() -> None:
 
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "invalid_timestamp"
+
+
+async def test_missing_upload_uses_standard_request_body_error() -> None:
+    """Verify request validation failures use the standard error catalog."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/v1/traffic/analyze")
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "code": "ERR00031",
+        "message": "Invalid request body",
+    }
 
 
 async def test_batch_endpoint_returns_partial_results() -> None:
@@ -48,6 +79,10 @@ async def test_batch_endpoint_returns_partial_results() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert [item["status"] for item in payload["items"]] == ["completed", "failed"]
+    assert payload["items"][0]["result"]["top_half_hours"][0]["timestamp"] == (
+        "01-12-2021 06:00:00"
+    )
+    assert_post_response_metadata(payload)
 
 
 def test_batch_openapi_schema_declares_binary_file_items() -> None:

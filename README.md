@@ -113,6 +113,7 @@ src/
   schemas/      API and Kafka contracts
   scripts/      CLI and process entry points
   services/     analysis, parsing, rate limiting, Kafka packages
+  utils/        errors, secure file handling, and response formatting
   tests/        unit, integration, e2e, and test data
 docs/postman/   Postman collection and local environment
 ```
@@ -220,6 +221,16 @@ structured `detail` object containing a stable `code` and safe `message`. Full
 interactive contracts and schemas are available through Swagger UI, ReDoc, and
 OpenAPI after starting the service.
 
+Every successful POST response also includes:
+
+- `id`: UUID primary identifier for the API operation
+- `createdAt`: UTC creation timestamp formatted as `DD-MM-YYYY HH:MM:SS`
+- `timeTaken`: processing duration in milliseconds, rounded to two decimal places
+
+All dates returned by the POST APIs use `DD-MM-YYYY`; timestamps that include a
+time use `DD-MM-YYYY HH:MM:SS`. Uploaded machine-generated traffic files retain
+their existing `YYYY-MM-DDTHH:MM:SS` input format.
+
 ## Quality checks
 
 ```bash
@@ -233,7 +244,20 @@ make coverage
 make ci
 ```
 
-`make test` excludes broker-marked tests. Run `make test-broker` with Kafka available.
+`make test`, `make coverage`, and `make ci` use the pytest expression
+`-m "not broker"`. The real-broker integration test is intentionally deselected
+from the standard suite because it requires a running Kafka service. A result such
+as `78 passed, 1 deselected` therefore means the application suite passed and the
+external Kafka test was not executed; it does not indicate a failure.
+
+Run the broker integration test separately:
+
+```bash
+docker compose up --detach kafka
+make kafka-topics
+RUN_KAFKA_TESTS=1 make test-broker
+```
+
 Coverage measures `src` application code, excludes `src/tests`, writes
 `coverage.xml`, and enforces 100% statement and branch coverage.
 
@@ -330,9 +354,85 @@ curl --request POST \
   --form "files=@src/tests/data/sample_traffic.txt;type=text/plain"
 ```
 
+Successful single-file response:
+
+```json
+{
+  "total_cars": 398,
+  "daily_totals": [
+    {
+      "date": "01-12-2021",
+      "car_count": 179
+    },
+    {
+      "date": "05-12-2021",
+      "car_count": 81
+    },
+    {
+      "date": "08-12-2021",
+      "car_count": 134
+    },
+    {
+      "date": "09-12-2021",
+      "car_count": 4
+    }
+  ],
+  "top_half_hours": [
+    {
+      "timestamp": "01-12-2021 07:30:00",
+      "car_count": 46
+    },
+    {
+      "timestamp": "01-12-2021 08:00:00",
+      "car_count": 42
+    },
+    {
+      "timestamp": "08-12-2021 18:00:00",
+      "car_count": 33
+    }
+  ],
+  "least_cars_period": {
+    "start": "01-12-2021 05:00:00",
+    "end": "01-12-2021 06:30:00",
+    "total_cars": 31,
+    "records": [
+      {
+        "timestamp": "01-12-2021 05:00:00",
+        "car_count": 5
+      },
+      {
+        "timestamp": "01-12-2021 05:30:00",
+        "car_count": 12
+      },
+      {
+        "timestamp": "01-12-2021 06:00:00",
+        "car_count": 14
+      }
+    ]
+  },
+  "id": "6c023e9c-f9d6-4348-8299-48667795ade4",
+  "createdAt": "25-07-2026 15:52:29",
+  "timeTaken": 4.32
+}
+```
+
+The batch endpoint returns the same `id`, `createdAt`, and `timeTaken` metadata
+with an ordered `items` array containing an independent result or error for each
+uploaded file.
+
 Success is HTTP 200. Common responses are 401 (invalid key), 413 (too large),
 415 (unsupported file), 422 (invalid traffic data), and 429 (limit exceeded).
 HTTP 429 includes `Retry-After`. Batch item failures remain inside a 200 response.
+
+Standard request and Kafka error codes are:
+
+| Code | Message |
+| --- | --- |
+| `ERR00010` | Kafka Producer Initialization Error |
+| `ERR00011` | Kafka Consumer Initialization Error |
+| `ERR00012` | Error while executing Kafka consumer action |
+| `ERR00030` | Invalid or missing JSON request body |
+| `ERR00031` | Invalid request body |
 
 ### Swagger UI
 

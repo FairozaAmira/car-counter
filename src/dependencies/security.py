@@ -5,8 +5,8 @@ from typing import Annotated
 from fastapi import Depends, Header, Request
 
 from src.config import Settings, get_settings
-from src.services.errors import AuthenticationError
 from src.services.rate_limit import RedisRateLimiter
+from src.utils.errors import AuthenticationError
 
 
 async def authenticate_request(
