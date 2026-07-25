@@ -250,6 +250,10 @@ from the standard suite because it requires a running Kafka service. A result su
 as `78 passed, 1 deselected` therefore means the application suite passed and the
 external Kafka test was not executed; it does not indicate a failure.
 
+All GitHub Actions quality jobs install locked dependencies with `make install`
+and execute the same local quality gate with `make ci`. This keeps local,
+pull-request, staging, and production-tag validation aligned.
+
 Run the broker integration test separately:
 
 ```bash
