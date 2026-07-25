@@ -1,5 +1,7 @@
 # AIPS Traffic Counter
 
+[![Tests](https://github.com/FairozaAmira/car-counter/actions/workflows/ci.yaml/badge.svg?branch=develop)](https://github.com/FairozaAmira/car-counter/actions/workflows/ci.yaml)
+
 An asynchronous FastAPI service, CLI, and standalone Kafka worker for analyzing
 machine-generated half-hour traffic counts. Python 3.12 is required and all
 dependencies are managed and locked with `uv`.
