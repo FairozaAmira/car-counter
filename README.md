@@ -8,6 +8,24 @@ The analyzer returns total cars, chronological daily totals, the three busiest
 half-hours (earliest timestamp wins ties), and the quietest contiguous 90-minute
 period containing observations at `T`, `T+30m`, and `T+60m`.
 
+## Project status
+
+The API, Kafka integration, local environment, automated tests, and delivery
+workflows are implemented. Gateway integration and operational deployment remain
+future work.
+
+| Phase | Status |
+| --- | --- |
+| Project initiation | Completed |
+| API development — Kafka setup | Completed |
+| API development — controllers and routers | Completed |
+| API development — environment setup | Completed |
+| API development — CI/CD setup | Completed |
+| API development — Kong setup | Planned |
+| Testing and validation | Completed |
+| Production deployment | Planned |
+| Monitoring and maintenance | Planned |
+
 ## Architecture
 
 - FastAPI/Uvicorn provides typed upload endpoints and OpenAPI documentation.
@@ -53,6 +71,30 @@ Important variables include `APP_HOST`, `APP_PORT`, `APP_WORKERS`, `APP_RELOAD`,
 `RATE_LIMIT_*`, and `KAFKA_*`. Empty `API_KEY` disables authentication.
 `RATE_LIMIT_ENABLED=true` requires `RATE_LIMIT_REDIS_URL`. Only list trusted reverse
 proxies in `TRUSTED_PROXY_HOSTS`; forwarding headers from other peers are ignored.
+
+## API overview
+
+| Method | Endpoint | Purpose | Authentication |
+| --- | --- | --- | --- |
+| `GET` | `/health/live` | Confirm that the API process is running | None |
+| `GET` | `/health/ready` | Check readiness and the configured Redis dependency | None |
+| `POST` | `/api/v1/traffic/analyze` | Validate and analyze one traffic file | `X-API-Key` when configured |
+| `POST` | `/api/v1/traffic/analyze/batch` | Analyze multiple files concurrently in input order | `X-API-Key` when configured |
+
+Traffic files are UTF-8 text files with one timestamp and non-negative car count
+per line:
+
+```text
+2021-12-01T05:00:00 5
+2021-12-01T05:30:00 12
+2021-12-01T06:00:00 8
+```
+
+Successful analysis responses include the overall total, daily totals, the three
+busiest half-hours, and the quietest contiguous 90-minute period. Errors use a
+structured `detail` object containing a stable `code` and safe `message`. Full
+interactive contracts and schemas are available through Swagger UI, ReDoc, and
+OpenAPI after starting the service.
 
 ## Run locally
 
@@ -174,15 +216,45 @@ delivery. Downstream systems should de-duplicate by request ID.
 
 ```bash
 make docker-build
-docker run --rm \
-  --env-file .env \
-  --publish 8000:8000 \
-  aips-car-counter:local
+make docker-verify
+make docker-run
 ```
+
+`make docker-build` pulls the latest base images, disables the layer cache, and
+builds `aips-car-counter:local` for `linux/amd64`. On Apple Silicon, build and run
+an ARM image explicitly:
+
+```bash
+make docker-build DOCKER_PLATFORM=linux/arm64
+make docker-verify DOCKER_PLATFORM=linux/arm64
+make docker-run DOCKER_PLATFORM=linux/arm64
+```
+
+Override `IMAGE_TAG` for immutable releases, for example
+`make docker-build IMAGE_TAG=v1.4.0`. `make docker-run` uses `.env`, publishes
+port 8000, and runs the named `aips-car-counter` container. From another terminal,
+`make docker-stop` stops it. Override `ENV_FILE`, `APP_PORT`, `IMAGE_NAME`,
+`IMAGE_TAG`, or `CONTAINER_NAME` when needed.
 
 The multi-stage image installs locked production dependencies, excludes tests and
 environment files, uses a non-root user, and starts Uvicorn through the typed
 environment-driven entry point.
+
+For local Kafka, start Compose and explicitly ensure both application topics exist:
+
+```bash
+docker compose up --detach kafka
+make kafka-topics
+```
+
+The target safely uses Kafka's `--if-not-exists` option for
+`traffic.analysis.requests` and `traffic.analysis.results`. Compose also enables
+automatic topic creation for local development.
+
+No Kubernetes manifests are maintained in this repository. If this image is
+deployed to Kubernetes, use a new immutable `IMAGE_TAG` for every release. If a
+mutable tag is unavoidable, set `imagePullPolicy: Always` and trigger a rollout
+restart so nodes do not retain an older cached image.
 
 ## Quality checks
 
@@ -208,6 +280,38 @@ images are published from tags such as `staging-v1.4.0` using the protected
 `staging` environment. Production images are published from tags such as `v1.4.0`
 using the protected `production` environment, where approval should be configured.
 The workflows publish only the exact tag and do not publish `latest`.
+
+## Contributing
+
+This is proprietary software, not an open-source project. Contributions are
+accepted only from authorized collaborators and remain subject to
+[the proprietary license](license.md). Contact the repository owner before
+starting substantial work; acceptance is discretionary and may require a separate
+written contributor agreement.
+
+For an authorized contribution:
+
+1. Create a focused branch from `develop`.
+2. Install the locked development environment with `make install`.
+3. Follow the existing architecture, typing, documentation, security, and testing
+   conventions.
+4. Add or update tests for every behavior change.
+5. Run `make ci` and relevant Docker or broker tests before opening a pull request.
+6. Open the pull request against `develop` with a concise summary, validation
+   evidence, operational impact, and any remaining risks.
+
+Do not submit secrets, production data, generated caches, unrelated refactors, or
+third-party material that you are not authorized to contribute.
+
+## Authors
+
+- [FairozaAmira](https://github.com/FairozaAmira) — creator and maintainer
+
+## License
+
+Copyright © 2026 FairozaAmira. All rights reserved. This project is proprietary
+software and is not licensed for public use, modification, or distribution.
+See [license.md](license.md) for the complete terms.
 
 ## Troubleshooting
 
