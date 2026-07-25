@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,7 +14,7 @@ class KafkaAnalysisRequest(BaseModel):
     schema_version: str = "1.0"
     request_id: UUID
     filename: str
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     records: list[TrafficRecord]
 
 
@@ -26,7 +26,7 @@ class KafkaAnalysisResult(BaseModel):
     schema_version: str = "1.0"
     request_id: UUID
     filename: str
-    completed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    completed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     status: ProcessingStatus
     result: AnalysisResult | None = None
     error: ErrorDetail | None = None

@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -44,7 +44,7 @@ class AnalysisResult(BaseModel):
     least_cars_period: LeastCarsPeriod
 
 
-class ProcessingStatus(str, Enum):
+class ProcessingStatus(StrEnum):
     """Describe whether an independently processed item succeeded."""
 
     COMPLETED = "completed"

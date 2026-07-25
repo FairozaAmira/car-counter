@@ -1,7 +1,7 @@
 # AIPS Traffic Counter
 
 An asynchronous FastAPI service, CLI, and standalone Kafka worker for analyzing
-machine-generated half-hour traffic counts. Python 3.10–3.12 is supported and all
+machine-generated half-hour traffic counts. Python 3.12 is required and all
 dependencies are managed and locked with `uv`.
 
 The analyzer returns total cars, chronological daily totals, the three busiest
@@ -34,10 +34,10 @@ docs/postman/   Postman collection and local environment
 
 ## Prerequisites and installation
 
-Install `uv`, Docker Desktop (for containers), and Python 3.10 or later:
+Install `uv`, Docker Desktop (for containers), and Python 3.12:
 
 ```bash
-uv python install 3.10
+uv python install 3.12
 make install
 ```
 
