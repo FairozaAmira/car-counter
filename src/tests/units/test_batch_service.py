@@ -14,9 +14,21 @@ VALID = b"""\
 
 async def test_batch_preserves_order_and_isolates_failures() -> None:
     uploads = [
-        UploadFile(filename="first.txt", file=BytesIO(VALID)),
-        UploadFile(filename="bad.txt", file=BytesIO(b"bad data")),
-        UploadFile(filename="third.txt", file=BytesIO(VALID)),
+        UploadFile(
+            filename="first.txt",
+            file=BytesIO(VALID),
+            headers={"content-type": "text/plain"},
+        ),
+        UploadFile(
+            filename="bad.txt",
+            file=BytesIO(b"bad data"),
+            headers={"content-type": "text/plain"},
+        ),
+        UploadFile(
+            filename="third.txt",
+            file=BytesIO(VALID),
+            headers={"content-type": "text/plain"},
+        ),
     ]
 
     response = await TrafficAnalysisService().analyze_uploads(uploads, concurrency=2)

@@ -1,3 +1,5 @@
+"""Kafka consumer worker service implementation."""
+
 import asyncio
 from collections.abc import Callable
 from typing import Any
@@ -30,6 +32,17 @@ class KafkaConsumerService:
         self._result_producer = result_producer or KafkaProducerService(settings)
 
     async def start(self) -> None:
+        """Start the result producer and request consumer.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+
+        Raises:
+            KafkaError: If either Kafka client cannot start.
+        """
         if self._consumer is not None:
             return
         self._consumer = self._consumer_factory(
@@ -48,6 +61,17 @@ class KafkaConsumerService:
             raise
 
     async def stop(self) -> None:
+        """Close the request consumer and result producer.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+
+        Raises:
+            KafkaError: If either Kafka client cannot close.
+        """
         if self._consumer is not None:
             await self._consumer.stop()
             self._consumer = None
@@ -59,6 +83,18 @@ class KafkaConsumerService:
         return self._consumer
 
     async def run(self, stop_event: asyncio.Event) -> None:
+        """Poll and process partitions until shutdown is requested.
+
+        Args:
+            stop_event: Cooperative shutdown signal.
+
+        Returns:
+            None.
+
+        Raises:
+            RuntimeError: If the service has not started.
+            KafkaError: If polling or message processing fails.
+        """
         consumer = self._require_started()
         while not stop_event.is_set():
             messages = await consumer.getmany(
@@ -67,9 +103,12 @@ class KafkaConsumerService:
             )
             if not messages:
                 continue
-            async with asyncio.TaskGroup() as task_group:
-                for partition, records in messages.items():
-                    task_group.create_task(self._process_partition(partition, records))
+            await asyncio.gather(
+                *(
+                    self._process_partition(partition, records)
+                    for partition, records in messages.items()
+                ),
+            )
 
     async def _process_partition(
         self,
@@ -84,6 +123,17 @@ class KafkaConsumerService:
             )
 
     async def process_message(self, raw_value: bytes) -> KafkaAnalysisResult:
+        """Validate, analyze, and publish one request event.
+
+        Args:
+            raw_value: Serialized request event.
+
+        Returns:
+            The published analysis outcome.
+
+        Raises:
+            KafkaError: If the result cannot be published.
+        """
         try:
             request = KafkaAnalysisRequest.model_validate_json(raw_value)
         except (ValidationError, ValueError) as exc:

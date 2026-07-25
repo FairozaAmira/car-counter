@@ -1,10 +1,12 @@
 from datetime import date, datetime
-from enum import StrEnum
+from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class TrafficRecord(BaseModel):
+    """Represent one half-hour traffic observation."""
+
     model_config = ConfigDict(frozen=True)
 
     timestamp: datetime
@@ -12,6 +14,8 @@ class TrafficRecord(BaseModel):
 
 
 class DailyTotal(BaseModel):
+    """Represent the aggregated car count for one calendar day."""
+
     model_config = ConfigDict(frozen=True)
 
     date: date
@@ -19,6 +23,8 @@ class DailyTotal(BaseModel):
 
 
 class LeastCarsPeriod(BaseModel):
+    """Represent the quietest contiguous 90-minute period."""
+
     model_config = ConfigDict(frozen=True)
 
     start: datetime
@@ -28,6 +34,8 @@ class LeastCarsPeriod(BaseModel):
 
 
 class AnalysisResult(BaseModel):
+    """Represent all calculated traffic statistics."""
+
     model_config = ConfigDict(frozen=True)
 
     total_cars: int = Field(ge=0)
@@ -36,12 +44,16 @@ class AnalysisResult(BaseModel):
     least_cars_period: LeastCarsPeriod
 
 
-class ProcessingStatus(StrEnum):
+class ProcessingStatus(str, Enum):
+    """Describe whether an independently processed item succeeded."""
+
     COMPLETED = "completed"
     FAILED = "failed"
 
 
 class ErrorDetail(BaseModel):
+    """Represent a stable, safe error returned to a client."""
+
     model_config = ConfigDict(frozen=True)
 
     code: str
@@ -49,6 +61,8 @@ class ErrorDetail(BaseModel):
 
 
 class BatchAnalysisItem(BaseModel):
+    """Represent one independently processed batch upload."""
+
     filename: str
     status: ProcessingStatus
     result: AnalysisResult | None = None
@@ -56,4 +70,6 @@ class BatchAnalysisItem(BaseModel):
 
 
 class BatchAnalysisResponse(BaseModel):
+    """Represent ordered results for a batch request."""
+
     items: list[BatchAnalysisItem]

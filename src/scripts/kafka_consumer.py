@@ -6,6 +6,17 @@ from src.services.kafka_consumer import KafkaConsumerService
 
 
 async def run() -> None:
+    """Run the consumer until an operating-system stop signal arrives.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        KafkaError: If consumer startup, processing, or shutdown fails.
+    """
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signal_name in (signal.SIGINT, signal.SIGTERM):
@@ -20,6 +31,17 @@ async def run() -> None:
 
 
 def main() -> None:
+    """Run the asynchronous Kafka consumer worker.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        RuntimeError: If an event loop cannot be created.
+    """
     asyncio.run(run())
 
 

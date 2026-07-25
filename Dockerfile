@@ -9,11 +9,14 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev
 
 FROM python:3.12-slim AS runtime
-WORKDIR /app/src
+RUN groupadd --system app && useradd --system --gid app --home /app app
+WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app" \
     PYTHONUNBUFFERED=1
 COPY --from=builder /app/.venv /app/.venv
 COPY src /app/src
+RUN chown -R app:app /app
+USER app
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--timeout-graceful-shutdown", "120", "--timeout-worker-healthcheck", "120"]
+CMD ["python", "-m", "src.scripts.serve"]

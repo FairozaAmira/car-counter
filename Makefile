@@ -1,4 +1,4 @@
-.PHONY: install lock run analyze producer consumer test test-coverage test-broker lint lint-fix format format-check typecheck check docker-up docker-down
+.PHONY: install lock ci run analyze producer consumer test coverage test-coverage test-broker lint lint-fix format format-check type-check typecheck check docker-build docker-up docker-down
 
 install:
 	uv sync --locked
@@ -7,7 +7,7 @@ lock:
 	uv lock
 
 run:
-	uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 4 --timeout-graceful-shutdown 120 --timeout-worker-healthcheck 120
+	uv run python -m src.scripts.serve
 
 analyze:
 	uv run python -m src.scripts.analyze $(FILE)
@@ -19,13 +19,15 @@ consumer:
 	uv run python -m src.scripts.kafka_consumer
 
 test:
-	uv run pytest -m "not broker"
+	uv run pytest src/tests -m "not broker"
 
-test-coverage:
-	uv run pytest -m "not broker" --cov --cov-report=term-missing --cov-report=xml
+coverage:
+	uv run pytest src/tests -m "not broker" --cov=src --cov-report=term-missing --cov-report=xml
+
+test-coverage: coverage
 
 test-broker:
-	uv run pytest -m broker
+	uv run pytest src/tests -m broker
 
 lint:
 	uv run ruff check .
@@ -42,7 +44,14 @@ format-check:
 typecheck:
 	uv run mypy src
 
-check: lint format-check typecheck test
+type-check: typecheck
+
+ci: lint format-check type-check test coverage
+
+check: ci
+
+docker-build:
+	docker build --tag aips-car-counter:local .
 
 docker-up:
 	docker compose up --build

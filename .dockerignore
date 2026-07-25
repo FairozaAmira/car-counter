@@ -1,10 +1,13 @@
 .git
 .github
+.env
+.env.*
 .mypy_cache
 .pytest_cache
 .ruff_cache
 .venv
 __pycache__
+src/tests
 *.pyc
 .coverage
 htmlcov

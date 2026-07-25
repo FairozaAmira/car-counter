@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -7,28 +7,34 @@ from src.schemas.traffic import AnalysisResult, ErrorDetail, ProcessingStatus, T
 
 
 class KafkaAnalysisRequest(BaseModel):
+    """Represent a versioned traffic-analysis request event."""
+
     model_config = ConfigDict(frozen=True)
 
     schema_version: str = "1.0"
     request_id: UUID
     filename: str
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     records: list[TrafficRecord]
 
 
 class KafkaAnalysisResult(BaseModel):
+    """Represent a versioned traffic-analysis result event."""
+
     model_config = ConfigDict(frozen=True)
 
     schema_version: str = "1.0"
     request_id: UUID
     filename: str
-    completed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    completed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: ProcessingStatus
     result: AnalysisResult | None = None
     error: ErrorDetail | None = None
 
 
 class KafkaPublishItem(BaseModel):
+    """Represent the outcome of publishing one local file."""
+
     filename: str
     status: ProcessingStatus
     request_id: UUID | None = None
