@@ -1,0 +1,1 @@
+"""Car counter application package."""

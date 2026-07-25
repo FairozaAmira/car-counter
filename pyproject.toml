@@ -1,0 +1,69 @@
+[project]
+name = "aips-car-counter"
+version = "1.0.0"
+description = "Async FastAPI and Kafka solution for the AIPS traffic counter challenge"
+requires-python = "==3.12.*"
+dependencies = [
+    "aiokafka==0.14.0",
+    "fastapi==0.139.2",
+    "pydantic-settings==2.14.2",
+    "python-multipart==0.0.32",
+    "redis==6.4.0",
+    "uvicorn[standard]==0.51.0",
+    "werkzeug==3.1.8",
+]
+
+[dependency-groups]
+dev = [
+    "httpx==0.28.1",
+    "mypy==1.20.2",
+    "pytest==8.4.2",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==6.3.0",
+    "ruff==0.16.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["src/tests"]
+markers = [
+    "broker: tests requiring a running Kafka broker",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "src/tests/*",
+    "src/tests/**/*",
+]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+exclude = ["src/tests"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["aiokafka", "aiokafka.*"]
+ignore_missing_imports = true

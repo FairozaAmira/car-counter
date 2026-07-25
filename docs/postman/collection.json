@@ -1,0 +1,88 @@
+{
+  "info": {
+    "name": "AIPS Car Counter API",
+    "description": "Local health and traffic-analysis requests.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Accept", "value": "application/json"}],
+            "url": "{{base_url}}/health/live"
+          }
+        },
+        {
+          "name": "Readiness",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Accept", "value": "application/json"}],
+            "url": "{{base_url}}/health/ready"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Traffic",
+      "item": [
+        {
+          "name": "Analyze file",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Accept", "value": "application/json"},
+              {"key": "X-API-Key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {"key": "file", "type": "file", "src": ""}
+              ]
+            },
+            "url": "{{base_url}}/api/v1/traffic/analyze"
+          }
+        },
+        {
+          "name": "Reject invalid traffic data",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "X-API-Key", "value": "{{api_key}}"}],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {"key": "file", "type": "file", "src": ""}
+              ]
+            },
+            "url": "{{base_url}}/api/v1/traffic/analyze"
+          }
+        },
+        {
+          "name": "Analyze files in a batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Accept", "value": "application/json"},
+              {"key": "X-API-Key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {"key": "files", "type": "file", "src": ""},
+                {"key": "files", "type": "file", "src": ""}
+              ]
+            },
+            "url": "{{base_url}}/api/v1/traffic/analyze/batch"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {"key": "base_url", "value": "http://localhost:8000"},
+    {"key": "api_key", "value": "<api-key>"}
+  ]
+}
