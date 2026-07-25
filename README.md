@@ -4,6 +4,7 @@
 [![Develop CI](https://github.com/FairozaAmira/car-counter/actions/workflows/ci.yaml/badge.svg?branch=develop)](https://github.com/FairozaAmira/car-counter/actions/workflows/ci.yaml?query=branch%3Adevelop)
 [![Coverage](https://codecov.io/gh/FairozaAmira/car-counter/branch/main/graph/badge.svg)](https://codecov.io/gh/FairozaAmira/car-counter)
 [![CodeQL](https://github.com/FairozaAmira/car-counter/actions/workflows/codeql.yaml/badge.svg?branch=main)](https://github.com/FairozaAmira/car-counter/actions/workflows/codeql.yaml?query=branch%3Amain)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17.5-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/docs/17/)
 
 An asynchronous FastAPI service, CLI, and standalone Kafka worker for analyzing
 machine-generated half-hour traffic counts. Python 3.12.13 is required and all
@@ -320,7 +321,7 @@ Never use a production database for local development or tests.
    docker compose exec -T postgres psql \
      --username application \
      --dbname application \
-     --command "SELECT id, analysis_kind, created_at, time_taken FROM traffic_analysis_results ORDER BY created_at DESC LIMIT 10;"
+     --command "SELECT ALL FROM traffic_analysis_results ORDER BY created_at DESC LIMIT 10;"
    ```
 
 The PostgreSQL named volume preserves local data across `docker compose down`.
@@ -496,7 +497,6 @@ curl --request POST \
   --form "files=@src/tests/data/sample_traffic.txt;type=text/plain" \
   --form "files=@src/tests/data/sample_traffic.txt;type=text/plain"
 ```
-
 Successful single-file response:
 
 ```json
@@ -577,6 +577,43 @@ Standard request and Kafka error codes are:
 | `ERR00030` | Invalid or missing JSON request body |
 | `ERR00031` | Invalid request body |
 
+Check the database after either cURL request. Copy the `id` from the API response
+and replace `<response-id>`:
+
+```bash
+docker compose exec -T postgres psql \
+  --username application \
+  --dbname application \
+  --command "SELECT id, analysis_kind, created_at, time_taken, response_payload FROM traffic_analysis_results WHERE id = '<response-id>';"
+```
+
+The query should return exactly one row. If the local PostgreSQL database or user
+was overridden, replace the `--dbname` and `--username` values accordingly.
+
+Check the five most recently stored results:
+
+```bash
+docker compose exec -T postgres psql \
+  --username application \
+  --dbname application \
+  --command "SELECT * FROM traffic_analysis_results ORDER BY created_at DESC LIMIT 5;"
+```
+
+Example result (`response_payload` is shortened here for readability):
+
+```text
+                  id                  | analysis_kind |          created_at          | time_taken | response_payload
+--------------------------------------+---------------+------------------------------+------------+----------------------------
+ 7d963c7d-71a8-40a7-a433-57aac4676f25 | batch         | 2026-07-26 06:15:21.42031+00 |       3.87 | {"id": "...", "items": ...}
+ 9d3f51e8-7397-4a11-b9bb-97f44d0d821e | single        | 2026-07-26 06:14:02.91854+00 |       4.32 | {"id": "...", "total_cars": 398, ...}
+(2 rows)
+```
+
+PostgreSQL stores `created_at` as timezone-aware UTC. The API formats the
+user-facing `createdAt` value as `DD-MM-YYYY`.
+
+
+
 ### Swagger UI
 
 Start the API, open `/docs`, select an endpoint, click **Try it out**, provide the
@@ -616,9 +653,22 @@ make docker-run DOCKER_PLATFORM=linux/arm64
 
 Override `IMAGE_TAG` for immutable releases, for example
 `make docker-build IMAGE_TAG=v1.4.0`. `make docker-run` uses `.env`, publishes
-port 8000, and runs the named `aips-car-counter` container. From another terminal,
-`make docker-stop` stops it. Override `ENV_FILE`, `APP_PORT`, `IMAGE_NAME`,
-`IMAGE_TAG`, or `CONTAINER_NAME` when needed.
+port 8000, and runs the named `aips-car-counter` container. It replaces the
+host-side `localhost` database address with `host.docker.internal`, because
+`localhost` inside the API container refers to that container rather than the
+Mac. The target also configures Docker's host-gateway mapping for Linux.
+
+Start PostgreSQL and apply migrations before running the standalone API image:
+
+```bash
+docker compose up --detach --wait postgres
+make db-upgrade
+make docker-run DOCKER_PLATFORM=linux/arm64
+```
+
+From another terminal, `make docker-stop` stops the API container. Override
+`ENV_FILE`, `APP_PORT`, `IMAGE_NAME`, `IMAGE_TAG`, `CONTAINER_NAME`,
+`DOCKER_DATABASE_HOST`, `POSTGRES_PORT`, or `DOCKER_DATABASE_URL` when needed.
 
 The multi-stage image installs locked production dependencies, excludes tests and
 environment files, uses a non-root user, and starts Uvicorn through the typed

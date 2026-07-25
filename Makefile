@@ -3,8 +3,14 @@ IMAGE_TAG ?= local
 IMAGE := $(IMAGE_NAME):$(IMAGE_TAG)
 CONTAINER_NAME ?= aips-car-counter
 DOCKER_PLATFORM ?= linux/amd64
+DOCKER_DATABASE_HOST ?= host.docker.internal
 ENV_FILE ?= .env
 APP_PORT ?= 8000
+POSTGRES_DB ?= application
+POSTGRES_USER ?= application
+POSTGRES_PASSWORD ?= application-local
+POSTGRES_PORT ?= 5433
+DOCKER_DATABASE_URL ?= postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(DOCKER_DATABASE_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)
 KAFKA_BOOTSTRAP_SERVER ?= localhost:29092
 KAFKA_REQUEST_TOPIC ?= traffic.analysis.requests
 KAFKA_RESULT_TOPIC ?= traffic.analysis.results
@@ -91,7 +97,16 @@ docker-verify:
 	docker run --rm --platform $(DOCKER_PLATFORM) --entrypoint sh $(IMAGE) -c 'test -x /app/.venv/bin/python && test -f /app/src/main.py && python -c "from src.main import app; assert app.openapi()[\"info\"][\"title\"]"'
 
 docker-run:
-	docker run --name $(CONTAINER_NAME) --rm --platform $(DOCKER_PLATFORM) --env-file $(ENV_FILE) --env APP_PORT=$(APP_PORT) --publish $(APP_PORT):$(APP_PORT) $(IMAGE)
+	docker run \
+		--name $(CONTAINER_NAME) \
+		--rm \
+		--platform $(DOCKER_PLATFORM) \
+		--add-host $(DOCKER_DATABASE_HOST):host-gateway \
+		--env-file $(ENV_FILE) \
+		--env APP_PORT=$(APP_PORT) \
+		--env DATABASE_URL=$(DOCKER_DATABASE_URL) \
+		--publish $(APP_PORT):$(APP_PORT) \
+		$(IMAGE)
 
 docker-stop:
 	docker stop $(CONTAINER_NAME)
