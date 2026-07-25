@@ -4,7 +4,13 @@
 [![Develop CI](https://github.com/FairozaAmira/car-counter/actions/workflows/ci.yaml/badge.svg?branch=develop)](https://github.com/FairozaAmira/car-counter/actions/workflows/ci.yaml?query=branch%3Adevelop)
 [![Coverage](https://codecov.io/gh/FairozaAmira/car-counter/branch/main/graph/badge.svg)](https://codecov.io/gh/FairozaAmira/car-counter)
 [![CodeQL](https://github.com/FairozaAmira/car-counter/actions/workflows/codeql.yaml/badge.svg?branch=main)](https://github.com/FairozaAmira/car-counter/actions/workflows/codeql.yaml?query=branch%3Amain)
+[![Python](https://img.shields.io/badge/Python-3.12.13-3776AB?logo=python&logoColor=white)](https://docs.python.org/3.12/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.139.2-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0.51-D71F00?logo=sqlalchemy&logoColor=white)](https://docs.sqlalchemy.org/en/20/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17.5-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/docs/17/)
+[![Apache Kafka](https://img.shields.io/badge/Apache_Kafka-4.0.0-231F20?logo=apachekafka&logoColor=white)](https://kafka.apache.org/documentation/)
+[![Redis](https://img.shields.io/badge/Redis-7.4-DC382D?logo=redis&logoColor=white)](https://redis.io/docs/)
+[![uv](https://img.shields.io/badge/uv-0.11.2-DE5FE9?logo=astral&logoColor=white)](https://docs.astral.sh/uv/)
 
 An asynchronous FastAPI service, CLI, and standalone Kafka worker for analyzing
 machine-generated half-hour traffic counts. Python 3.12.13 is required and all
