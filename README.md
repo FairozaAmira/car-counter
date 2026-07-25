@@ -2,6 +2,8 @@
 
 [![Main CI](https://github.com/FairozaAmira/car-counter/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/FairozaAmira/car-counter/actions/workflows/ci.yaml?query=branch%3Amain)
 [![Develop CI](https://github.com/FairozaAmira/car-counter/actions/workflows/ci.yaml/badge.svg?branch=develop)](https://github.com/FairozaAmira/car-counter/actions/workflows/ci.yaml?query=branch%3Adevelop)
+[![Coverage](https://codecov.io/gh/FairozaAmira/car-counter/branch/main/graph/badge.svg)](https://codecov.io/gh/FairozaAmira/car-counter)
+[![CodeQL](https://github.com/FairozaAmira/car-counter/actions/workflows/codeql.yaml/badge.svg?branch=main)](https://github.com/FairozaAmira/car-counter/actions/workflows/codeql.yaml?query=branch%3Amain)
 
 An asynchronous FastAPI service, CLI, and standalone Kafka worker for analyzing
 machine-generated half-hour traffic counts. Python 3.12 is required and all
