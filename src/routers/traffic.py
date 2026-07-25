@@ -78,7 +78,13 @@ async def analyze_file(
     dependencies=[Depends(enforce_upload_rate_limit)],
 )
 async def analyze_files(
-    files: Annotated[list[UploadFile], File(description="Traffic counter text files")],
+    files: Annotated[
+        list[UploadFile],
+        File(
+            description="Traffic counter text files",
+            json_schema_extra={"items": {"type": "string", "format": "binary"}},
+        ),
+    ],
     controller: Annotated[TrafficController, Depends(get_traffic_controller)],
 ) -> BatchAnalysisResponse:
     """Analyze multiple uploaded traffic files.

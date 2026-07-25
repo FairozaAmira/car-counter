@@ -50,6 +50,19 @@ async def test_batch_endpoint_returns_partial_results() -> None:
     assert [item["status"] for item in payload["items"]] == ["completed", "failed"]
 
 
+def test_batch_openapi_schema_declares_binary_file_items() -> None:
+    """Verify Swagger UI renders a file picker for every batch item."""
+    schema = app.openapi()
+    request_schema = schema["paths"]["/api/v1/traffic/analyze/batch"]["post"]["requestBody"][
+        "content"
+    ]["multipart/form-data"]["schema"]
+    component_name = request_schema["$ref"].rsplit("/", maxsplit=1)[-1]
+    files_schema = schema["components"]["schemas"][component_name]["properties"]["files"]
+
+    assert files_schema["type"] == "array"
+    assert files_schema["items"] == {"type": "string", "format": "binary"}
+
+
 async def test_health_endpoints() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         live_response = await client.get("/health/live")
