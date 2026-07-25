@@ -220,6 +220,50 @@ structured `detail` object containing a stable `code` and safe `message`. Full
 interactive contracts and schemas are available through Swagger UI, ReDoc, and
 OpenAPI after starting the service.
 
+## Quality checks
+
+```bash
+make lint
+make lint-fix
+make format
+make format-check
+make type-check
+make test
+make coverage
+make ci
+```
+
+`make test` excludes broker-marked tests. Run `make test-broker` with Kafka available.
+Coverage measures `src` application code, excludes `src/tests`, writes
+`coverage.xml`, and enforces 100% statement and branch coverage.
+
+## CLI and Kafka
+
+Analyze without the API:
+
+```bash
+uv run python -m src.scripts.analyze src/tests/data/sample_traffic.txt
+```
+
+Start Kafka, Redis, the API, and the standalone consumer:
+
+```bash
+docker compose up --build
+docker compose down
+```
+
+Or run the worker and producer from the locked environment:
+
+```bash
+make consumer
+make producer FILES="src/tests/data/sample_traffic.txt"
+```
+
+Requests use `traffic.analysis.requests`; results use `traffic.analysis.results`.
+The consumer processes partitions concurrently, preserves ordering within each
+partition, publishes before manually committing, and therefore provides at-least-once
+delivery. Downstream systems should de-duplicate by request ID.
+
 ## Run locally
 
 Development:
@@ -309,33 +353,6 @@ api_key=<api-key>
 Select the local environment, attach `src/tests/data/sample_traffic.txt` to upload
 requests, and leave `api_key` empty only when authentication is disabled.
 
-## CLI and Kafka
-
-Analyze without the API:
-
-```bash
-uv run python -m src.scripts.analyze src/tests/data/sample_traffic.txt
-```
-
-Start Kafka, Redis, the API, and the standalone consumer:
-
-```bash
-docker compose up --build
-docker compose down
-```
-
-Or run the worker and producer from the locked environment:
-
-```bash
-make consumer
-make producer FILES="src/tests/data/sample_traffic.txt"
-```
-
-Requests use `traffic.analysis.requests`; results use `traffic.analysis.results`.
-The consumer processes partitions concurrently, preserves ordering within each
-partition, publishes before manually committing, and therefore provides at-least-once
-delivery. Downstream systems should de-duplicate by request ID.
-
 ## Docker
 
 ```bash
@@ -379,23 +396,6 @@ No Kubernetes manifests are maintained in this repository. If this image is
 deployed to Kubernetes, use a new immutable `IMAGE_TAG` for every release. If a
 mutable tag is unavoidable, set `imagePullPolicy: Always` and trigger a rollout
 restart so nodes do not retain an older cached image.
-
-## Quality checks
-
-```bash
-make lint
-make lint-fix
-make format
-make format-check
-make type-check
-make test
-make coverage
-make ci
-```
-
-`make test` excludes broker-marked tests. Run `make test-broker` with Kafka available.
-Coverage measures `src` application code, excludes `src/tests`, writes
-`coverage.xml`, and enforces 100% statement and branch coverage.
 
 ## Releases
 
