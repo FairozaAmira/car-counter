@@ -1,3 +1,5 @@
+"""Kafka consumer worker service implementation."""
+
 import asyncio
 from collections.abc import Callable
 from typing import Any
@@ -11,8 +13,14 @@ from src.config import Settings
 from src.schemas.kafka import KafkaAnalysisRequest, KafkaAnalysisResult
 from src.schemas.traffic import ErrorDetail, ProcessingStatus
 from src.services.analyzer import analyze_traffic
-from src.services.errors import TrafficCounterError
 from src.services.kafka_producer import KafkaProducerService
+from src.utils.errors import (
+    InvalidJsonRequestError,
+    InvalidRequestBodyError,
+    KafkaConsumerActionError,
+    KafkaConsumerInitializationError,
+    TrafficCounterError,
+)
 
 
 class KafkaConsumerService:
@@ -30,24 +38,50 @@ class KafkaConsumerService:
         self._result_producer = result_producer or KafkaProducerService(settings)
 
     async def start(self) -> None:
+        """Start the result producer and request consumer.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+
+        Raises:
+            KafkaProducerInitializationError: If the result producer cannot start.
+            KafkaConsumerInitializationError: If the consumer cannot initialize.
+        """
         if self._consumer is not None:
             return
-        self._consumer = self._consumer_factory(
-            self._settings.kafka_request_topic,
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
-            group_id=self._settings.kafka_consumer_group,
-            enable_auto_commit=False,
-            auto_offset_reset="earliest",
-        )
+        try:
+            self._consumer = self._consumer_factory(
+                self._settings.kafka_request_topic,
+                bootstrap_servers=self._settings.kafka_bootstrap_servers,
+                group_id=self._settings.kafka_consumer_group,
+                enable_auto_commit=False,
+                auto_offset_reset="earliest",
+            )
+        except Exception as exc:
+            raise KafkaConsumerInitializationError() from exc
         await self._result_producer.start()
         try:
             await self._consumer.start()
-        except Exception:
+        except Exception as exc:
             await self._result_producer.stop()
             self._consumer = None
-            raise
+            raise KafkaConsumerInitializationError() from exc
 
     async def stop(self) -> None:
+        """Close the request consumer and result producer.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+
+        Raises:
+            KafkaError: If either Kafka client cannot close.
+        """
         if self._consumer is not None:
             await self._consumer.stop()
             self._consumer = None
@@ -59,17 +93,35 @@ class KafkaConsumerService:
         return self._consumer
 
     async def run(self, stop_event: asyncio.Event) -> None:
+        """Poll and process partitions until shutdown is requested.
+
+        Args:
+            stop_event: Cooperative shutdown signal.
+
+        Returns:
+            None.
+
+        Raises:
+            RuntimeError: If the service has not started.
+            KafkaConsumerActionError: If polling or message processing fails.
+        """
         consumer = self._require_started()
-        while not stop_event.is_set():
-            messages = await consumer.getmany(
-                timeout_ms=self._settings.kafka_consumer_poll_timeout_ms,
-                max_records=self._settings.kafka_consumer_max_records,
-            )
-            if not messages:
-                continue
-            async with asyncio.TaskGroup() as task_group:
-                for partition, records in messages.items():
-                    task_group.create_task(self._process_partition(partition, records))
+        try:
+            while not stop_event.is_set():
+                messages = await consumer.getmany(
+                    timeout_ms=self._settings.kafka_consumer_poll_timeout_ms,
+                    max_records=self._settings.kafka_consumer_max_records,
+                )
+                if not messages:
+                    continue
+                await asyncio.gather(
+                    *(
+                        self._process_partition(partition, records)
+                        for partition, records in messages.items()
+                    ),
+                )
+        except Exception as exc:
+            raise KafkaConsumerActionError() from exc
 
     async def _process_partition(
         self,
@@ -84,14 +136,29 @@ class KafkaConsumerService:
             )
 
     async def process_message(self, raw_value: bytes) -> KafkaAnalysisResult:
+        """Validate, analyze, and publish one request event.
+
+        Args:
+            raw_value: Serialized request event.
+
+        Returns:
+            The published analysis outcome.
+
+        Raises:
+            KafkaError: If the result cannot be published.
+        """
         try:
             request = KafkaAnalysisRequest.model_validate_json(raw_value)
-        except (ValidationError, ValueError) as exc:
+        except (ValidationError, ValueError):
+            invalid_json_error = InvalidJsonRequestError()
             result = KafkaAnalysisResult(
                 request_id=uuid4(),
                 filename="unknown",
                 status=ProcessingStatus.FAILED,
-                error=ErrorDetail(code="invalid_event", message=str(exc)),
+                error=ErrorDetail(
+                    code=invalid_json_error.code,
+                    message=invalid_json_error.message,
+                ),
             )
         else:
             try:
@@ -102,12 +169,16 @@ class KafkaConsumerService:
                     status=ProcessingStatus.COMPLETED,
                     result=analysis,
                 )
-            except TrafficCounterError as exc:
+            except TrafficCounterError:
+                invalid_request_error = InvalidRequestBodyError()
                 result = KafkaAnalysisResult(
                     request_id=request.request_id,
                     filename=request.filename,
                     status=ProcessingStatus.FAILED,
-                    error=ErrorDetail(code=exc.code, message=exc.message),
+                    error=ErrorDetail(
+                        code=invalid_request_error.code,
+                        message=invalid_request_error.message,
+                    ),
                 )
 
         await self._result_producer.publish_result(result)

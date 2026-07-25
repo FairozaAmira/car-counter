@@ -4,7 +4,7 @@ import pytest
 
 from src.schemas.traffic import TrafficRecord
 from src.services.analyzer import analyze_traffic
-from src.services.errors import AnalysisError
+from src.utils.errors import AnalysisError
 
 
 def record(timestamp: str, count: int) -> TrafficRecord:
@@ -71,3 +71,11 @@ def test_gap_does_not_form_a_period() -> None:
         )
 
     assert error.value.code == "no_contiguous_period"
+
+
+def test_analyze_rejects_empty_record_list() -> None:
+    """Verify direct service use rejects an empty record collection."""
+    with pytest.raises(AnalysisError) as error:
+        analyze_traffic([])
+
+    assert error.value.code == "empty_input"

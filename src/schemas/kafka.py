@@ -7,6 +7,8 @@ from src.schemas.traffic import AnalysisResult, ErrorDetail, ProcessingStatus, T
 
 
 class KafkaAnalysisRequest(BaseModel):
+    """Represent a versioned traffic-analysis request event."""
+
     model_config = ConfigDict(frozen=True)
 
     schema_version: str = "1.0"
@@ -17,6 +19,8 @@ class KafkaAnalysisRequest(BaseModel):
 
 
 class KafkaAnalysisResult(BaseModel):
+    """Represent a versioned traffic-analysis result event."""
+
     model_config = ConfigDict(frozen=True)
 
     schema_version: str = "1.0"
@@ -29,6 +33,8 @@ class KafkaAnalysisResult(BaseModel):
 
 
 class KafkaPublishItem(BaseModel):
+    """Represent the outcome of publishing one local file."""
+
     filename: str
     status: ProcessingStatus
     request_id: UUID | None = None

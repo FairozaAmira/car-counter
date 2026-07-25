@@ -1,7 +1,9 @@
 from io import BytesIO
 
+import pytest
 from fastapi import UploadFile
 
+from src.controllers.traffic import TrafficController
 from src.schemas.traffic import ProcessingStatus
 from src.services.traffic import TrafficAnalysisService
 
@@ -14,9 +16,21 @@ VALID = b"""\
 
 async def test_batch_preserves_order_and_isolates_failures() -> None:
     uploads = [
-        UploadFile(filename="first.txt", file=BytesIO(VALID)),
-        UploadFile(filename="bad.txt", file=BytesIO(b"bad data")),
-        UploadFile(filename="third.txt", file=BytesIO(VALID)),
+        UploadFile(
+            filename="first.txt",
+            file=BytesIO(VALID),
+            headers={"content-type": "text/plain"},
+        ),
+        UploadFile(
+            filename="bad.txt",
+            file=BytesIO(b"bad data"),
+            headers={"content-type": "text/plain"},
+        ),
+        UploadFile(
+            filename="third.txt",
+            file=BytesIO(VALID),
+            headers={"content-type": "text/plain"},
+        ),
     ]
 
     response = await TrafficAnalysisService().analyze_uploads(uploads, concurrency=2)
@@ -33,3 +47,9 @@ async def test_batch_preserves_order_and_isolates_failures() -> None:
     ]
     assert response.items[1].error is not None
     assert response.items[1].error.code == "invalid_timestamp"
+
+
+def test_controller_rejects_invalid_concurrency() -> None:
+    """Verify controller concurrency configuration fails fast."""
+    with pytest.raises(ValueError, match="batch_concurrency"):
+        TrafficController(TrafficAnalysisService(), batch_concurrency=0)

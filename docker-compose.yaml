@@ -1,4 +1,15 @@
 services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   kafka:
     image: apache/kafka:4.0.0
     hostname: kafka
@@ -30,11 +41,33 @@ services:
   api:
     build: .
     ports:
-      - "8000:8000"
+      - "${APP_PORT:-8000}:${APP_PORT:-8000}"
     environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: ${APP_PORT:-8000}
+      APP_WORKERS: ${APP_WORKERS:-2}
+      KEEP_ALIVE_TIMEOUT_SECONDS: ${KEEP_ALIVE_TIMEOUT_SECONDS:-5}
+      GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: ${GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS:-30}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    stop_grace_period: ${GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS:-30}s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, urllib.request; urllib.request.urlopen(f\"http://localhost:{os.environ['APP_PORT']}/health/ready\", timeout=2)",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
     depends_on:
       kafka:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   consumer:
@@ -46,3 +79,6 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+
+volumes:
+  redis-data:
