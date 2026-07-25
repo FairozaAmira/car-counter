@@ -3,19 +3,30 @@ IMAGE_TAG ?= local
 IMAGE := $(IMAGE_NAME):$(IMAGE_TAG)
 CONTAINER_NAME ?= aips-car-counter
 DOCKER_PLATFORM ?= linux/amd64
+DOCKER_DATABASE_HOST ?= host.docker.internal
 ENV_FILE ?= .env
 APP_PORT ?= 8000
+POSTGRES_DB ?= application
+POSTGRES_USER ?= application
+POSTGRES_PASSWORD ?= application-local
+POSTGRES_PORT ?= 5433
+DOCKER_DATABASE_URL ?= postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(DOCKER_DATABASE_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)
 KAFKA_BOOTSTRAP_SERVER ?= localhost:29092
 KAFKA_REQUEST_TOPIC ?= traffic.analysis.requests
 KAFKA_RESULT_TOPIC ?= traffic.analysis.results
+ALEMBIC_CONFIG ?= src/migrations/alembic.ini
+REVISION ?= -1
 
-.PHONY: install lock ci run analyze producer consumer test coverage test-coverage test-broker lint lint-fix format format-check type-check typecheck check docker-build docker-verify docker-run docker-stop docker-up docker-down kafka-topics
+.PHONY: install lock lock-check ci run analyze producer consumer test coverage test-coverage test-broker lint lint-fix format format-check type-check typecheck check db-upgrade db-downgrade db-revision db-current db-history migration-check docker-build docker-verify docker-run docker-stop docker-up docker-down kafka-topics
 
 install:
 	uv sync --locked
 
 lock:
 	uv lock
+
+lock-check:
+	uv lock --check
 
 run:
 	uv run python -m src.scripts.serve
@@ -57,7 +68,25 @@ typecheck:
 
 type-check: typecheck
 
-ci: lint format-check type-check test coverage
+db-upgrade:
+	uv run --locked alembic --config $(ALEMBIC_CONFIG) upgrade head
+
+db-downgrade:
+	uv run --locked alembic --config $(ALEMBIC_CONFIG) downgrade $(REVISION)
+
+db-revision:
+	uv run --locked alembic --config $(ALEMBIC_CONFIG) revision --autogenerate --message "$(MESSAGE)"
+
+db-current:
+	uv run --locked alembic --config $(ALEMBIC_CONFIG) current
+
+db-history:
+	uv run --locked alembic --config $(ALEMBIC_CONFIG) history
+
+migration-check: db-upgrade
+	uv run --locked alembic --config $(ALEMBIC_CONFIG) check
+
+ci: lock-check install lint format-check type-check test coverage migration-check
 
 check: ci
 
@@ -68,7 +97,16 @@ docker-verify:
 	docker run --rm --platform $(DOCKER_PLATFORM) --entrypoint sh $(IMAGE) -c 'test -x /app/.venv/bin/python && test -f /app/src/main.py && python -c "from src.main import app; assert app.openapi()[\"info\"][\"title\"]"'
 
 docker-run:
-	docker run --name $(CONTAINER_NAME) --rm --platform $(DOCKER_PLATFORM) --env-file $(ENV_FILE) --env APP_PORT=$(APP_PORT) --publish $(APP_PORT):$(APP_PORT) $(IMAGE)
+	docker run \
+		--name $(CONTAINER_NAME) \
+		--rm \
+		--platform $(DOCKER_PLATFORM) \
+		--add-host $(DOCKER_DATABASE_HOST):host-gateway \
+		--env-file $(ENV_FILE) \
+		--env APP_PORT=$(APP_PORT) \
+		--env DATABASE_URL=$(DOCKER_DATABASE_URL) \
+		--publish $(APP_PORT):$(APP_PORT) \
+		$(IMAGE)
 
 docker-stop:
 	docker stop $(CONTAINER_NAME)

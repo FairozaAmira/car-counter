@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = Field(default=60, ge=1)
     rate_limit_fail_open: bool = True
 
+    database_url: str | None = None
+    database_pool_size: int = Field(default=5, ge=1)
+    database_max_overflow: int = Field(default=10, ge=0)
+    database_pool_timeout_seconds: float = Field(default=30.0, gt=0)
+    database_pool_recycle_seconds: int = Field(default=1_800, ge=1)
+    database_connect_timeout_seconds: float = Field(default=10.0, gt=0)
+    database_command_timeout_seconds: float = Field(default=30.0, gt=0)
+
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_request_topic: str = "traffic.analysis.requests"
     kafka_result_topic: str = "traffic.analysis.results"
@@ -84,7 +92,7 @@ class Settings(BaseSettings):
         parsed = tuple(item.strip() for item in value.split(",") if item.strip())
         return parsed
 
-    @field_validator("api_key", "rate_limit_redis_url", mode="before")
+    @field_validator("api_key", "rate_limit_redis_url", "database_url", mode="before")
     @classmethod
     def empty_string_to_none(cls, value: object) -> object:
         """Treat empty optional environment values as disabled.
@@ -100,6 +108,24 @@ class Settings(BaseSettings):
         """
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("database_url")
+    @classmethod
+    def validate_database_url(cls, value: str | None) -> str | None:
+        """Require the asynchronous PostgreSQL SQLAlchemy driver.
+
+        Args:
+            value: Configured database connection URL.
+
+        Returns:
+            The validated URL or ``None`` when startup is not being performed.
+
+        Raises:
+            ValueError: If a non-PostgreSQL or synchronous URL is configured.
+        """
+        if value is not None and not value.startswith("postgresql+asyncpg://"):
+            raise ValueError("DATABASE_URL must start with postgresql+asyncpg://.")
         return value
 
     @field_validator("log_level")

@@ -12,6 +12,7 @@ class ErrorCode(StrEnum):
     KAFKA_CONSUMER_ACTION = "ERR00012"
     INVALID_JSON_REQUEST_BODY = "ERR00030"
     INVALID_REQUEST_BODY = "ERR00031"
+    DATABASE_WRITE_ERROR = "database_write_error"
     AUTHENTICATION_FAILED = "authentication_failed"
     RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
     INVALID_RECORD = "invalid_record"
@@ -222,3 +223,25 @@ class InvalidRequestBodyError(TrafficCounterError):
         """
         code = ErrorCode.INVALID_REQUEST_BODY
         super().__init__(code, STANDARD_ERROR_MESSAGES[code], 422)
+
+
+class DatabasePersistenceError(TrafficCounterError):
+    """Represent a failed database write."""
+
+    def __init__(self) -> None:
+        """Create a safe persistence exception.
+
+        Args:
+            None.
+
+        Returns:
+            A database persistence exception.
+
+        Raises:
+            None.
+        """
+        super().__init__(
+            ErrorCode.DATABASE_WRITE_ERROR,
+            "The analysis result could not be stored.",
+            503,
+        )
