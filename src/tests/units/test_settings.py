@@ -28,6 +28,7 @@ def test_settings_parse_structured_and_optional_values() -> None:
         {"rate_limit_enabled": True, "rate_limit_redis_url": None},
         {"app_reload": True, "app_workers": 2},
         {"cors_origins": ("*",)},
+        {"database_url": "postgresql://application:application@localhost/application"},
     ],
 )
 def test_settings_reject_invalid_runtime_contracts(values: dict[str, object]) -> None:

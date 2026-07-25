@@ -2,13 +2,17 @@
 name = "aips-car-counter"
 version = "1.0.0"
 description = "Async FastAPI and Kafka solution for the AIPS traffic counter challenge"
-requires-python = "==3.12.*"
+requires-python = "==3.12.13"
 dependencies = [
     "aiokafka==0.14.0",
+    "alembic==1.18.5",
+    "asyncpg==0.31.0",
     "fastapi==0.139.2",
+    "greenlet==3.5.4",
     "pydantic-settings==2.14.2",
     "python-multipart==0.0.32",
     "redis==6.4.0",
+    "sqlalchemy==2.0.51",
     "uvicorn[standard]==0.51.0",
     "werkzeug==3.1.8",
 ]
@@ -33,6 +37,7 @@ pythonpath = ["."]
 testpaths = ["src/tests"]
 markers = [
     "broker: tests requiring a running Kafka broker",
+    "database: tests requiring a disposable PostgreSQL database",
 ]
 
 [tool.coverage.run]
@@ -41,6 +46,7 @@ branch = true
 omit = [
     "src/tests/*",
     "src/tests/**/*",
+    "src/migrations/versions/*",
 ]
 
 [tool.coverage.report]

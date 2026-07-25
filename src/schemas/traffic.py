@@ -15,6 +15,10 @@ ResponseDateTime = Annotated[
     datetime,
     PlainSerializer(format_response_datetime, return_type=str, when_used="json"),
 ]
+CreatedAtDate = Annotated[
+    datetime,
+    PlainSerializer(format_response_date, return_type=str, when_used="json"),
+]
 
 
 class TrafficRecord(BaseModel):
@@ -103,9 +107,9 @@ class ResponseMetadata(BaseModel):
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
     id: UUID = Field(description="Unique identifier for this API operation")
-    created_at: ResponseDateTime = Field(
+    created_at: CreatedAtDate = Field(
         alias="createdAt",
-        description="UTC creation timestamp formatted as DD-MM-YYYY HH:MM:SS",
+        description="UTC creation date formatted as DD-MM-YYYY",
     )
     time_taken: float = Field(
         alias="timeTaken",

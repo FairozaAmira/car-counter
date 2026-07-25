@@ -6,6 +6,32 @@ from src.config import Settings
 from src.main import lifespan
 
 
+class FakeEngine:
+    """Capture database engine disposal."""
+
+    def __init__(self) -> None:
+        """Create an undisposed engine."""
+        self.disposed = False
+
+    async def dispose(self) -> None:
+        """Record pool disposal."""
+        self.disposed = True
+
+
+@pytest.fixture
+def database_engine(monkeypatch: pytest.MonkeyPatch) -> FakeEngine:
+    """Replace PostgreSQL resources with deterministic test doubles."""
+    engine = FakeEngine()
+
+    async def check_database(_engine: FakeEngine) -> None:
+        """Accept the fake database connection."""
+
+    monkeypatch.setattr("src.main.create_database_engine", lambda _settings: engine)
+    monkeypatch.setattr("src.main.check_database_connection", check_database)
+    monkeypatch.setattr("src.main.create_session_factory", lambda _engine: object())
+    return engine
+
+
 class FakeRedis:
     """Provide a controllable async Redis lifecycle."""
 
@@ -37,6 +63,7 @@ class FakeRedis:
 
 async def test_lifespan_initializes_and_closes_rate_limiter(
     monkeypatch: pytest.MonkeyPatch,
+    database_engine: FakeEngine,
 ) -> None:
     """Verify enabled shared state is initialized once per API process."""
     redis = FakeRedis()
@@ -51,10 +78,12 @@ async def test_lifespan_initializes_and_closes_rate_limiter(
         assert application.state.rate_limiter is not None
 
     assert redis.closed
+    assert database_engine.disposed
 
 
 async def test_lifespan_fails_closed_when_redis_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
+    database_engine: FakeEngine,
 ) -> None:
     """Verify mandatory rate limiting prevents unsafe startup."""
     redis = FakeRedis(fail_ping=True)
@@ -71,11 +100,13 @@ async def test_lifespan_fails_closed_when_redis_is_unavailable(
             raise AssertionError("Application should not start.")
 
     assert redis.closed
+    assert database_engine.disposed
 
 
 async def test_lifespan_fails_open_when_redis_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
+    database_engine: FakeEngine,
 ) -> None:
     """Verify optional limiting permits startup while logging degradation."""
     redis = FakeRedis(fail_ping=True)
@@ -91,13 +122,16 @@ async def test_lifespan_fails_open_when_redis_is_unavailable(
         assert application.state.rate_limiter is not None
 
     assert redis.closed
+    assert database_engine.disposed
     assert "Rate-limit backend unavailable during startup" in caplog.text
 
 
-async def test_lifespan_without_rate_limiting() -> None:
+async def test_lifespan_without_rate_limiting(database_engine: FakeEngine) -> None:
     """Verify startup and shutdown need no Redis resource when disabled."""
     application = FastAPI()
     application.state.settings = Settings(rate_limit_enabled=False)
 
     async with lifespan(application):
         assert not hasattr(application.state, "redis_client")
+
+    assert database_engine.disposed

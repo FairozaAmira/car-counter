@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,7 +7,9 @@ from httpx import ASGITransport, AsyncClient
 from redis.exceptions import ConnectionError
 
 from src.config import Settings
-from src.main import app, create_app
+from src.db.models import AnalysisKind
+from src.main import create_app
+from src.routers.traffic import get_analysis_repository
 from src.services.rate_limit import RedisRateLimiter
 
 VALID = """\
@@ -16,10 +19,34 @@ VALID = """\
 """
 
 
+class InMemoryAnalysisRepository:
+    """Capture persisted API results without using a production database."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self.records: list[dict[str, Any]] = []
+
+    async def save(self, **record: Any) -> None:
+        """Capture one stored response."""
+        self.records.append(record)
+
+
+repository = InMemoryAnalysisRepository()
+app = create_app(Settings(database_url=None))
+app.dependency_overrides[get_analysis_repository] = lambda: repository
+
+
+def configure_repository(application: Any) -> InMemoryAnalysisRepository:
+    """Configure isolated API persistence for a test application."""
+    test_repository = InMemoryAnalysisRepository()
+    application.dependency_overrides[get_analysis_repository] = lambda: test_repository
+    return test_repository
+
+
 def assert_post_response_metadata(payload: dict[str, object]) -> None:
     """Verify common POST response identifiers and timing metadata."""
     assert UUID(str(payload["id"])).version == 4
-    datetime.strptime(str(payload["createdAt"]), "%d-%m-%Y %H:%M:%S")
+    datetime.strptime(str(payload["createdAt"]), "%d-%m-%Y")
     time_taken = payload["timeTaken"]
     assert isinstance(time_taken, float)
     assert time_taken >= 0
@@ -27,6 +54,7 @@ def assert_post_response_metadata(payload: dict[str, object]) -> None:
 
 
 async def test_single_file_endpoint() -> None:
+    record_count = len(repository.records)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
             "/api/v1/traffic/analyze",
@@ -41,6 +69,11 @@ async def test_single_file_endpoint() -> None:
     assert payload["least_cars_period"]["start"] == "01-12-2021 05:00:00"
     assert payload["least_cars_period"]["end"] == "01-12-2021 06:30:00"
     assert_post_response_metadata(payload)
+    assert len(repository.records) == record_count + 1
+    stored = repository.records[-1]
+    assert stored["result_id"] == UUID(payload["id"])
+    assert stored["analysis_kind"] is AnalysisKind.SINGLE
+    assert stored["response_payload"] == payload
 
 
 async def test_single_file_endpoint_returns_domain_error() -> None:
@@ -67,6 +100,7 @@ async def test_missing_upload_uses_standard_request_body_error() -> None:
 
 
 async def test_batch_endpoint_returns_partial_results() -> None:
+    record_count = len(repository.records)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
             "/api/v1/traffic/analyze/batch",
@@ -83,6 +117,9 @@ async def test_batch_endpoint_returns_partial_results() -> None:
         "01-12-2021 06:00:00"
     )
     assert_post_response_metadata(payload)
+    assert len(repository.records) == record_count + 1
+    assert repository.records[-1]["analysis_kind"] is AnalysisKind.BATCH
+    assert repository.records[-1]["response_payload"] == payload
 
 
 def test_batch_openapi_schema_declares_binary_file_items() -> None:
@@ -110,7 +147,8 @@ async def test_health_endpoints() -> None:
 
 
 async def test_api_key_authentication() -> None:
-    protected_app = create_app(Settings(api_key="test-key"))
+    protected_app = create_app(Settings(api_key="test-key", database_url=None))
+    configure_repository(protected_app)
     async with AsyncClient(
         transport=ASGITransport(app=protected_app),
         base_url="http://test",
@@ -144,16 +182,20 @@ async def test_readiness_respects_rate_limit_failure_policy() -> None:
             rate_limit_enabled=True,
             rate_limit_redis_url="redis://test",
             rate_limit_fail_open=True,
+            database_url=None,
         ),
     )
+    configure_repository(fail_open_app)
     fail_open_app.state.redis_client = UnavailableRedis()
     fail_closed_app = create_app(
         Settings(
             rate_limit_enabled=True,
             rate_limit_redis_url="redis://test",
             rate_limit_fail_open=False,
+            database_url=None,
         ),
     )
+    configure_repository(fail_closed_app)
     fail_closed_app.state.redis_client = UnavailableRedis()
 
     async with AsyncClient(
@@ -174,8 +216,10 @@ async def test_readiness_respects_rate_limit_failure_policy() -> None:
 
 def test_create_app_configures_explicit_cors() -> None:
     """Verify configured origins install the CORS middleware."""
-    cors_app = create_app(Settings(cors_origins=("https://client.example",)))
-    no_cors_app = create_app(Settings(cors_origins=()))
+    cors_app = create_app(
+        Settings(cors_origins=("https://client.example",), database_url=None),
+    )
+    no_cors_app = create_app(Settings(cors_origins=(), database_url=None))
 
     assert any(middleware.cls is CORSMiddleware for middleware in cors_app.user_middleware)
     assert all(middleware.cls is not CORSMiddleware for middleware in no_cors_app.user_middleware)
@@ -202,8 +246,10 @@ async def test_upload_rate_limit_returns_retry_after_header() -> None:
             rate_limit_enabled=True,
             rate_limit_redis_url="redis://test",
             rate_limit_upload_requests=1,
+            database_url=None,
         ),
     )
+    configure_repository(limited_app)
     limited_app.state.rate_limiter = RedisRateLimiter(Backend(), 60, False)
     transport = ASGITransport(app=limited_app)
 

@@ -8,8 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from src.config import Settings, get_settings
+from src.db.session import (
+    check_database_connection,
+    create_database_engine,
+    create_session_factory,
+)
 from src.middleware.request_context import RequestContextMiddleware
 from src.routers.traffic import router as traffic_router
 from src.schemas.traffic import ErrorDetail
@@ -37,29 +44,35 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         RedisError: If the rate-limit backend is required and unavailable.
     """
     settings: Settings = application.state.settings
+    database_engine = create_database_engine(settings)
     redis_client: Redis | None = None
-    if settings.rate_limit_enabled:
-        assert settings.rate_limit_redis_url is not None
-        redis_client = Redis.from_url(settings.rate_limit_redis_url, decode_responses=True)
-        try:
-            await redis_client.ping()
-        except RedisError:
-            if not settings.rate_limit_fail_open:
-                await redis_client.aclose()
-                raise
-            logger.exception("Rate-limit backend unavailable during startup")
-        application.state.redis_client = redis_client
-        application.state.rate_limiter = RedisRateLimiter(
-            redis_client,
-            settings.rate_limit_window_seconds,
-            settings.rate_limit_fail_open,
-        )
-    logger.info("Application started", extra={"environment": settings.environment})
     try:
+        await check_database_connection(database_engine)
+        application.state.database_engine = database_engine
+        application.state.db_session_factory = create_session_factory(database_engine)
+        if settings.rate_limit_enabled:
+            assert settings.rate_limit_redis_url is not None
+            redis_client = Redis.from_url(settings.rate_limit_redis_url, decode_responses=True)
+            try:
+                await redis_client.ping()
+            except RedisError:
+                if not settings.rate_limit_fail_open:
+                    await redis_client.aclose()
+                    redis_client = None
+                    raise
+                logger.exception("Rate-limit backend unavailable during startup")
+            application.state.redis_client = redis_client
+            application.state.rate_limiter = RedisRateLimiter(
+                redis_client,
+                settings.rate_limit_window_seconds,
+                settings.rate_limit_fail_open,
+            )
+        logger.info("Application started", extra={"environment": settings.environment})
         yield
     finally:
         if redis_client is not None:
             await redis_client.aclose()
+        await database_engine.dispose()
         logger.info("Application stopped", extra={"environment": settings.environment})
 
 
@@ -134,7 +147,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/health/ready",
         tags=["operations"],
         summary="Readiness check",
-        description="Checks the shared rate-limit backend when it is enabled.",
+        description="Checks PostgreSQL and the shared rate-limit backend when enabled.",
     )
     async def health_ready(request: Request) -> JSONResponse:
         """Return whether critical dependencies are ready.
@@ -149,6 +162,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             None.
         """
         current_settings: Settings = request.app.state.settings
+        database_engine: AsyncEngine | None = getattr(
+            request.app.state,
+            "database_engine",
+            None,
+        )
+        if database_engine is None:
+            if current_settings.database_url is not None:
+                return JSONResponse(status_code=503, content={"status": "not_ready"})
+        else:
+            try:
+                await check_database_connection(database_engine)
+            except SQLAlchemyError:
+                return JSONResponse(status_code=503, content={"status": "not_ready"})
         redis_client: Redis | None = getattr(request.app.state, "redis_client", None)
         if current_settings.rate_limit_enabled and redis_client is not None:
             try:
