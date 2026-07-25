@@ -36,6 +36,73 @@ future work.
 - Kafka producer and consumer services reuse connections. The consumer runs as a
   standalone worker, never once per Uvicorn worker.
 
+```mermaid
+flowchart LR
+    subgraph clients["Clients and local entry points"]
+        apiClient["API client"]
+        analysisCli["Analysis CLI"]
+        producerCli["Kafka producer CLI"]
+    end
+
+    subgraph api["FastAPI process"]
+        uvicorn["Uvicorn workers"]
+        requestContext["Request context middleware"]
+        trafficRouter["Traffic router"]
+        security["API key and rate-limit dependencies"]
+        controller["Traffic controller"]
+        trafficService["Traffic analysis service"]
+    end
+
+    subgraph core["Core processing"]
+        parser["Traffic text parser"]
+        analyzer["Traffic analyzer"]
+    end
+
+    subgraph workers["Standalone Kafka processes"]
+        producerService["Kafka producer service"]
+        consumerWorker["Kafka consumer worker"]
+    end
+
+    subgraph infrastructure["Shared infrastructure"]
+        redis[("Redis rate-limit backend")]
+        requestTopic[["Kafka request topic"]]
+        resultTopic[["Kafka result topic"]]
+    end
+
+    subgraph outputs["Outputs"]
+        apiResponse["Typed JSON response"]
+        cliResponse["CLI JSON output"]
+        downstream["Downstream Kafka consumer"]
+    end
+
+    apiClient -->|"Multipart HTTP"| uvicorn
+    uvicorn --> requestContext
+    requestContext --> trafficRouter
+    trafficRouter --> security
+    security -.->|"Optional shared limit"| redis
+    security --> controller
+    controller --> trafficService
+    trafficService --> parser
+    parser --> analyzer
+    analyzer --> apiResponse
+
+    analysisCli --> parser
+    analyzer --> cliResponse
+
+    producerCli --> producerService
+    producerService -.->|"Publish request"| requestTopic
+    requestTopic -.->|"Consume records"| consumerWorker
+    consumerWorker --> analyzer
+    consumerWorker -.->|"Publish result"| resultTopic
+    resultTopic -.-> downstream
+```
+
+The synchronous API and CLI paths share the same parser and analyzer. Kafka
+requests are handled by a separately scalable consumer process so multiple
+Uvicorn workers do not create duplicate long-running consumers. Redis is used
+only when shared rate limiting is enabled. Kong is planned and is therefore not
+shown as an active gateway.
+
 ```text
 src/
   config/       typed environment configuration
@@ -48,6 +115,63 @@ src/
   services/     analysis, parsing, rate limiting, Kafka packages
   tests/        unit, integration, e2e, and test data
 docs/postman/   Postman collection and local environment
+```
+
+### Code flow
+
+```mermaid
+flowchart LR
+    subgraph httpInput ["HTTP input"]
+        httpClient(["API client"])
+        requestContext["Request context middleware"]
+        security["API-key authentication and Redis rate limit"]
+    end
+
+    subgraph apiFlow ["FastAPI flow"]
+        trafficRouter["Traffic router"]
+        trafficController["Traffic controller"]
+        routeType{"Single or batch?"}
+        batchRunner["Bounded concurrent batch processing"]
+    end
+
+    subgraph analysisFlow ["Analysis flow"]
+        uploadValidation["Validate filename, type, size, and UTF-8"]
+        parser["Parse timestamp and car-count records"]
+        analyzer["Calculate totals, busiest periods, and quietest window"]
+        safeError["Map safe structured error"]
+    end
+
+    subgraph kafkaFlow ["Kafka worker flow"]
+        producerCli(["Producer CLI"])
+        producerService["Parse files and publish requests"]
+        requestTopic[("traffic.analysis.requests")]
+        consumerService["Standalone consumer worker"]
+        workerAnalyzer["Analyze request records"]
+        resultPublisher["Publish result before offset commit"]
+        resultTopic[("traffic.analysis.results")]
+    end
+
+    subgraph outputFlow ["Outputs"]
+        apiResponse(["Typed API or batch response"])
+        kafkaResult(["Kafka result event"])
+    end
+
+    httpClient --> requestContext --> security --> trafficRouter --> trafficController
+    trafficController --> routeType
+    routeType -->|"Single"| uploadValidation
+    routeType -->|"Batch"| batchRunner --> uploadValidation
+    uploadValidation --> parser --> analyzer --> apiResponse
+    uploadValidation -.->|"Rejected"| safeError
+    parser -.->|"Invalid records"| safeError
+    analyzer -.->|"Analysis failure"| safeError
+    safeError --> apiResponse
+
+    producerCli --> producerService
+    producerService -.->|"Produces"| requestTopic
+    requestTopic -.->|"Consumes"| consumerService
+    consumerService --> workerAnalyzer --> resultPublisher
+    resultPublisher -.->|"Produces"| resultTopic
+    resultTopic -.-> kafkaResult
 ```
 
 ## Prerequisites and installation
