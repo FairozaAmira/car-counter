@@ -6,7 +6,7 @@
 [![CodeQL](https://github.com/FairozaAmira/car-counter/actions/workflows/codeql.yaml/badge.svg?branch=main)](https://github.com/FairozaAmira/car-counter/actions/workflows/codeql.yaml?query=branch%3Amain)
 
 An asynchronous FastAPI service, CLI, and standalone Kafka worker for analyzing
-machine-generated half-hour traffic counts. Python 3.12 is required and all
+machine-generated half-hour traffic counts. Python 3.12.13 is required and all
 dependencies are managed and locked with `uv`.
 
 The analyzer returns total cars, chronological daily totals, the three busiest
@@ -25,6 +25,7 @@ future work.
 | API development — Kafka setup | Completed |
 | API development — controllers and routers | Completed |
 | API development — environment setup | Completed |
+| API development — database and migrations setup | Completed |
 | API development — CI/CD setup | Completed |
 | API development — API Gateway setup | Planned |
 | Testing and validation | Completed |
@@ -35,6 +36,8 @@ future work.
 
 - FastAPI/Uvicorn provides typed upload endpoints and OpenAPI documentation.
 - Controllers keep HTTP orchestration separate from parsing and analysis services.
+- SQLAlchemy repositories store every successful POST response in PostgreSQL.
+- Alembic owns PostgreSQL schema upgrades and downgrades.
 - Uploads are size-, filename-, extension-, MIME-, NUL-, and UTF-8-validated.
 - Optional API-key authentication is independent from Redis-backed rate limiting.
 - Batch work uses bounded async concurrency, preserves order, and isolates failures.
@@ -55,6 +58,7 @@ flowchart LR
         trafficRouter["Traffic router"]
         security["API key and rate-limit dependencies"]
         controller["Traffic controller"]
+        repository["Analysis result repository"]
         trafficService["Traffic analysis service"]
     end
 
@@ -70,6 +74,7 @@ flowchart LR
 
     subgraph infrastructure["Shared infrastructure"]
         redis[("Redis rate-limit backend")]
+        postgres[("PostgreSQL")]
         requestTopic[["Kafka request topic"]]
         resultTopic[["Kafka result topic"]]
     end
@@ -86,6 +91,8 @@ flowchart LR
     trafficRouter --> security
     security -.->|"Optional shared limit"| redis
     security --> controller
+    controller --> repository
+    repository --> postgres
     controller --> trafficService
     trafficService --> parser
     parser --> analyzer
@@ -112,8 +119,10 @@ shown as an active gateway.
 src/
   config/       typed environment configuration
   controllers/  HTTP use-case orchestration
+  db/           SQLAlchemy models, repositories, and async sessions
   dependencies/ authentication and rate-limit dependencies
   middleware/   request IDs and access logging
+  migrations/   Alembic environment and versioned schema changes
   routers/      thin FastAPI routes
   schemas/      API and Kafka contracts
   scripts/      CLI and process entry points
@@ -182,10 +191,10 @@ flowchart LR
 
 ## Prerequisites and installation
 
-Install `uv`, Docker Desktop (for containers), and Python 3.12:
+Install `uv`, Docker Desktop (for containers), and Python 3.12.13:
 
 ```bash
-uv python install 3.12
+uv python install 3.12.13
 make install
 ```
 
@@ -198,7 +207,8 @@ cp .env.example .env
 Important variables include `APP_HOST`, `APP_PORT`, `APP_WORKERS`, `APP_RELOAD`,
 `KEEP_ALIVE_TIMEOUT_SECONDS`, `GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS`,
 `BATCH_CONCURRENCY`, `API_KEY`, `CORS_ORIGINS`, upload validation settings,
-`RATE_LIMIT_*`, and `KAFKA_*`. Empty `API_KEY` disables authentication.
+`DATABASE_*`, `RATE_LIMIT_*`, and `KAFKA_*`. `DATABASE_URL` must use the
+`postgresql+asyncpg://` SQLAlchemy scheme. Empty `API_KEY` disables authentication.
 `RATE_LIMIT_ENABLED=true` requires `RATE_LIMIT_REDIS_URL`. Only list trusted reverse
 proxies in `TRUSTED_PROXY_HOSTS`; forwarding headers from other peers are ignored.
 
@@ -207,7 +217,7 @@ proxies in `TRUSTED_PROXY_HOSTS`; forwarding headers from other peers are ignore
 | Method | Endpoint | Purpose | Authentication |
 | --- | --- | --- | --- |
 | `GET` | `/health/live` | Confirm that the API process is running | None |
-| `GET` | `/health/ready` | Check readiness and the configured Redis dependency | None |
+| `GET` | `/health/ready` | Check PostgreSQL and configured Redis readiness | None |
 | `POST` | `/api/v1/traffic/analyze` | Validate and analyze one traffic file | `X-API-Key` when configured |
 | `POST` | `/api/v1/traffic/analyze/batch` | Analyze multiple files concurrently in input order | `X-API-Key` when configured |
 
@@ -226,15 +236,116 @@ structured `detail` object containing a stable `code` and safe `message`. Full
 interactive contracts and schemas are available through Swagger UI, ReDoc, and
 OpenAPI after starting the service.
 
-Every successful POST response also includes:
+Every successful POST response is committed to PostgreSQL before it is returned
+and includes:
 
 - `id`: UUID primary identifier for the API operation
-- `createdAt`: UTC creation timestamp formatted as `DD-MM-YYYY HH:MM:SS`
+- `createdAt`: UTC creation date formatted as `DD-MM-YYYY`
 - `timeTaken`: processing duration in milliseconds, rounded to two decimal places
 
-All dates returned by the POST APIs use `DD-MM-YYYY`; timestamps that include a
-time use `DD-MM-YYYY HH:MM:SS`. Uploaded machine-generated traffic files retain
+The response `id` is the primary key of `traffic_analysis_results`. The table
+also stores the operation kind, a timezone-aware UTC creation timestamp, timing,
+and the complete response as PostgreSQL JSONB. A database write failure is rolled
+back and returned as HTTP 503 with the safe `database_write_error` code.
+
+All dates returned by the POST APIs use `DD-MM-YYYY`; traffic observations that
+require a time use `DD-MM-YYYY HH:MM:SS`. Uploaded machine-generated traffic files retain
 their existing `YYYY-MM-DDTHH:MM:SS` input format.
+
+## Database and migrations
+
+PostgreSQL is the persistent store. SQLAlchemy uses an asyncpg connection pool
+configured by `DATABASE_URL`, `DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW`,
+`DATABASE_POOL_TIMEOUT_SECONDS`, `DATABASE_POOL_RECYCLE_SECONDS`,
+`DATABASE_CONNECT_TIMEOUT_SECONDS`, and `DATABASE_COMMAND_TIMEOUT_SECONDS`.
+Never use a production database for local development or tests.
+
+### Local database setup
+
+1. Create the local environment file:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Confirm that `.env` contains the local async SQLAlchemy URL:
+
+   ```dotenv
+   DATABASE_URL=postgresql+asyncpg://application:application-local@localhost:5433/application
+   POSTGRES_PORT=5433
+   ```
+
+   The local Compose defaults use database `application`, user `application`,
+   password `application-local`, and host port `5433`. PostgreSQL continues to
+   use port `5432` inside the Compose network. Override
+   `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, or `POSTGRES_PORT`
+   when those defaults conflict with another local PostgreSQL instance. Keep
+   `DATABASE_URL` consistent with the overridden values.
+
+3. Start PostgreSQL and wait for its health check:
+
+   ```bash
+   docker compose up --detach postgres
+   docker compose ps postgres
+   ```
+
+4. Install the locked dependencies and apply all migrations:
+
+   ```bash
+   make install
+   make db-upgrade
+   ```
+
+5. Confirm that the database is at the latest revision:
+
+   ```bash
+   make db-current
+   ```
+
+   The current revision should include `20260726_0001 (head)`.
+
+6. Start the API:
+
+   ```bash
+   APP_WORKERS=1 APP_RELOAD=true make run
+   ```
+
+   In another terminal, submit one of the POST requests from the API examples
+   below. Successful single and batch responses are committed to
+   `traffic_analysis_results` before the API returns them.
+
+7. Inspect recently stored results:
+
+   ```bash
+   docker compose exec -T postgres psql \
+     --username application \
+     --dbname application \
+     --command "SELECT id, analysis_kind, created_at, time_taken FROM traffic_analysis_results ORDER BY created_at DESC LIMIT 10;"
+   ```
+
+The PostgreSQL named volume preserves local data across `docker compose down`.
+Use non-production credentials and databases for development and testing.
+
+### Alembic commands
+
+```bash
+make db-upgrade
+make db-downgrade
+make db-revision MESSAGE="description"
+make db-current
+make db-history
+make migration-check
+```
+
+`make db-downgrade` defaults to one revision; set `REVISION` to choose another
+target. Review every generated revision before applying it. The initial migration
+creates `traffic_analysis_results` with upgrade and downgrade logic, a UUID
+primary key, constraints for result kind and non-negative timing, and an index on
+kind plus creation time. `make migration-check` applies pending migrations and
+fails when SQLAlchemy metadata contains schema changes without a migration.
+
+When starting the complete stack with `docker compose up --build`, the one-off
+`migrate` service applies Alembic migrations before the API is allowed to start.
 
 ## Quality checks
 
@@ -246,18 +357,28 @@ make format-check
 make type-check
 make test
 make coverage
+make migration-check
 make ci
 ```
 
 `make test`, `make coverage`, and `make ci` use the pytest expression
 `-m "not broker"`. The real-broker integration test is intentionally deselected
 from the standard suite because it requires a running Kafka service. A result such
-as `78 passed, 1 deselected` therefore means the application suite passed and the
-external Kafka test was not executed; it does not indicate a failure.
+as `94 passed, 1 skipped, 1 deselected` therefore means the application suite
+passed while external database and Kafka tests were not executed.
 
-All GitHub Actions quality jobs install locked dependencies with `make install`
-and execute the same local quality gate with `make ci`. This keeps local,
-pull-request, staging, and production-tag validation aligned.
+Run the PostgreSQL persistence integration test only against a disposable
+database whose name ends in `_test`:
+
+```bash
+RUN_DATABASE_TESTS=1 \
+DATABASE_URL=postgresql+asyncpg://application:application@localhost:5432/application_test \
+make test
+```
+
+All GitHub Actions quality jobs execute `make ci`, which checks and installs
+locked dependencies before running the same ordered local quality gate. This
+keeps local, pull-request, staging, and production-tag validation aligned.
 
 Run the broker integration test separately:
 
@@ -267,7 +388,8 @@ make kafka-topics
 RUN_KAFKA_TESTS=1 make test-broker
 ```
 
-Coverage measures `src` application code, excludes `src/tests`, writes
+Coverage measures `src` application code, excludes tests and migration version
+files, writes
 `coverage.xml`, and enforces 100% statement and branch coverage.
 
 ## CLI and Kafka
@@ -278,12 +400,15 @@ Analyze without the API:
 uv run python -m src.scripts.analyze src/tests/data/sample_traffic.txt
 ```
 
-Start Kafka, Redis, the API, and the standalone consumer:
+Start PostgreSQL, run migrations, and start Kafka, Redis, the API, and the
+standalone consumer:
 
 ```bash
 docker compose up --build
 docker compose down
 ```
+
+Compose runs Alembic in a one-off `migrate` service before starting the API.
 
 Or run the worker and producer from the locked environment:
 
@@ -298,6 +423,15 @@ partition, publishes before manually committing, and therefore provides at-least
 delivery. Downstream systems should de-duplicate by request ID.
 
 ## Run locally
+
+Start supporting services, apply migrations, and run the aligned quality gate:
+
+```bash
+docker compose up --detach postgres redis kafka
+make db-upgrade
+make ci
+make kafka-topics
+```
 
 Development:
 
@@ -420,7 +554,7 @@ Successful single-file response:
     ]
   },
   "id": "6c023e9c-f9d6-4348-8299-48667795ade4",
-  "createdAt": "25-07-2026 15:52:29",
+  "createdAt": "25-07-2026",
   "timeTaken": 4.32
 }
 ```
@@ -552,5 +686,10 @@ See [license.md](license.md) for the complete terms.
   `UV_CACHE_DIR=/private/tmp/car-counter-uv-cache`.
 - If Docker commands cannot connect, start Docker Desktop before rebuilding.
 - If readiness returns 503, check Redis and `RATE_LIMIT_REDIS_URL`.
+- If readiness returns 503 with PostgreSQL configured, check `DATABASE_URL`,
+  database health, and `make db-current`.
+- If Alembic reports unapplied changes, run `make db-upgrade`; create a new
+  revision for schema changes rather than editing an applied migration.
 - If startup rejects settings, ensure reload uses one worker, CORS has no wildcard,
-  and Redis is configured whenever rate limiting is enabled.
+  PostgreSQL uses the asyncpg URL scheme, and Redis is configured whenever rate
+  limiting is enabled.

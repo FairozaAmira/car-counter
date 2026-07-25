@@ -19,14 +19,31 @@ env:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql+asyncpg://application:application@localhost:5432/application_test
+      RUN_DATABASE_TESTS: "1"
+    services:
+      postgres:
+        image: postgres:17.5-alpine
+        env:
+          POSTGRES_DB: application_test
+          POSTGRES_USER: application
+          POSTGRES_PASSWORD: application
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U application -d application_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.11.2"
-      - run: uv python install 3.12
-      - name: Install locked dependencies
-        run: make install
+      - run: uv python install 3.12.13
+      - name: Prepare disposable test database
+        run: make db-upgrade
       - name: Quality checks
         run: make ci
 

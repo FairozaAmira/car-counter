@@ -1,9 +1,12 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import Settings, get_settings
 from src.controllers.traffic import TrafficController
+from src.db.repositories import AnalysisResultRepository, SqlAlchemyAnalysisResultRepository
+from src.db.session import get_db_session
 from src.dependencies.security import enforce_upload_rate_limit
 from src.schemas.traffic import AnalysisResponse, BatchAnalysisResponse
 from src.services.traffic import TrafficAnalysisService
@@ -11,13 +14,32 @@ from src.services.traffic import TrafficAnalysisService
 router = APIRouter(prefix="/api/v1/traffic", tags=["traffic"])
 
 
+def get_analysis_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> AnalysisResultRepository:
+    """Build a request-scoped analysis result repository.
+
+    Args:
+        session: Request-scoped asynchronous database session.
+
+    Returns:
+        A SQLAlchemy-backed result repository.
+
+    Raises:
+        None.
+    """
+    return SqlAlchemyAnalysisResultRepository(session)
+
+
 def get_traffic_controller(
     settings: Annotated[Settings, Depends(get_settings)],
+    repository: Annotated[AnalysisResultRepository, Depends(get_analysis_repository)],
 ) -> TrafficController:
     """Build a request-scoped traffic controller.
 
     Args:
         settings: Validated runtime settings.
+        repository: Request-scoped analysis result repository.
 
     Returns:
         A configured traffic controller.
@@ -30,7 +52,7 @@ def get_traffic_controller(
         allowed_extensions=settings.upload_allowed_extensions,
         allowed_mime_types=settings.upload_allowed_mime_types,
     )
-    return TrafficController(service, settings.batch_concurrency)
+    return TrafficController(service, repository, settings.batch_concurrency)
 
 
 @router.post(

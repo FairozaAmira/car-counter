@@ -52,4 +52,4 @@ async def test_batch_preserves_order_and_isolates_failures() -> None:
 def test_controller_rejects_invalid_concurrency() -> None:
     """Verify controller concurrency configuration fails fast."""
     with pytest.raises(ValueError, match="batch_concurrency"):
-        TrafficController(TrafficAnalysisService(), batch_concurrency=0)
+        TrafficController(TrafficAnalysisService(), object(), batch_concurrency=0)  # type: ignore[arg-type]

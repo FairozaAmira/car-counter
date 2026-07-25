@@ -4,6 +4,8 @@ from uuid import uuid4
 
 from fastapi import UploadFile
 
+from src.db.models import AnalysisKind
+from src.db.repositories import AnalysisResultRepository
 from src.schemas.traffic import (
     AnalysisDataResponse,
     AnalysisResponse,
@@ -34,11 +36,17 @@ def _format_batch_item(item: BatchAnalysisItem) -> BatchAnalysisItemResponse:
 class TrafficController:
     """Coordinate HTTP use cases with the traffic analysis service."""
 
-    def __init__(self, service: TrafficAnalysisService, batch_concurrency: int) -> None:
+    def __init__(
+        self,
+        service: TrafficAnalysisService,
+        repository: AnalysisResultRepository,
+        batch_concurrency: int,
+    ) -> None:
         """Create a controller.
 
         Args:
             service: Traffic analysis service.
+            repository: Traffic analysis result repository.
             batch_concurrency: Maximum concurrent batch operations.
 
         Returns:
@@ -50,6 +58,7 @@ class TrafficController:
         if batch_concurrency < 1:
             raise ValueError("batch_concurrency must be positive.")
         self._service = service
+        self._repository = repository
         self._batch_concurrency = batch_concurrency
 
     async def analyze(self, file: UploadFile) -> AnalysisResponse:
@@ -67,12 +76,20 @@ class TrafficController:
         started_at = perf_counter()
         created_at = datetime.now(UTC)
         result = await self._service.analyze_upload(file)
-        return AnalysisResponse(
+        response = AnalysisResponse(
             id=uuid4(),
             created_at=created_at,
             time_taken=round((perf_counter() - started_at) * 1_000, 2),
             **_format_analysis_result(result).model_dump(),
         )
+        await self._repository.save(
+            result_id=response.id,
+            analysis_kind=AnalysisKind.SINGLE,
+            created_at=response.created_at,
+            time_taken=response.time_taken,
+            response_payload=response.model_dump(mode="json", by_alias=True),
+        )
+        return response
 
     async def analyze_batch(self, files: list[UploadFile]) -> BatchAnalysisResponse:
         """Analyze multiple uploaded files with bounded concurrency.
@@ -89,9 +106,17 @@ class TrafficController:
         started_at = perf_counter()
         created_at = datetime.now(UTC)
         result = await self._service.analyze_uploads(files, self._batch_concurrency)
-        return BatchAnalysisResponse(
+        response = BatchAnalysisResponse(
             id=uuid4(),
             created_at=created_at,
             time_taken=round((perf_counter() - started_at) * 1_000, 2),
             items=[_format_batch_item(item) for item in result.items],
         )
+        await self._repository.save(
+            result_id=response.id,
+            analysis_kind=AnalysisKind.BATCH,
+            created_at=response.created_at,
+            time_taken=response.time_taken,
+            response_payload=response.model_dump(mode="json", by_alias=True),
+        )
+        return response
