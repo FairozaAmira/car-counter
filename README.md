@@ -21,7 +21,7 @@ future work.
 | API development — controllers and routers | Completed |
 | API development — environment setup | Completed |
 | API development — CI/CD setup | Completed |
-| API development — Kong setup | Planned |
+| API development — API Gateway setup | Planned |
 | Testing and validation | Completed |
 | Production deployment | Planned |
 | Monitoring and maintenance | Planned |
