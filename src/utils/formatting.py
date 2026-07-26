@@ -6,7 +6,7 @@ DATE_RESPONSE_FORMAT = "%d-%m-%Y"
 DATETIME_RESPONSE_FORMAT = "%d-%m-%Y %H:%M:%S"
 
 
-def format_response_date(value: date) -> str:
+def formatResponseDate(value: date) -> str:
     """Format a date using the public API convention.
 
     Args:
@@ -18,10 +18,14 @@ def format_response_date(value: date) -> str:
     Raises:
         None.
     """
-    return value.strftime(DATE_RESPONSE_FORMAT)
+    try:
+        return value.strftime(DATE_RESPONSE_FORMAT)
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in formatResponseDate: {e}")
+        raise
 
 
-def format_response_datetime(value: datetime) -> str:
+def formatResponseDatetime(value: datetime) -> str:
     """Format a date-time using the public API convention.
 
     Args:
@@ -33,4 +37,8 @@ def format_response_datetime(value: datetime) -> str:
     Raises:
         None.
     """
-    return value.strftime(DATETIME_RESPONSE_FORMAT)
+    try:
+        return value.strftime(DATETIME_RESPONSE_FORMAT)
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in formatResponseDatetime: {e}")
+        raise

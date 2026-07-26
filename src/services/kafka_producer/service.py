@@ -11,9 +11,9 @@ from aiokafka import AIOKafkaProducer
 from src.config import Settings
 from src.schemas.kafka import KafkaAnalysisRequest, KafkaAnalysisResult, KafkaPublishItem
 from src.schemas.traffic import ErrorDetail, ProcessingStatus, TrafficRecord
-from src.services.parser import parse_traffic_text
+from src.services.parser import parseTrafficText
 from src.utils.errors import ErrorCode, KafkaProducerInitializationError, TrafficCounterError
-from src.utils.files import read_text_file_async
+from src.utils.files import readTextFileAsync
 
 
 class KafkaProducerService:
@@ -22,11 +22,15 @@ class KafkaProducerService:
     def __init__(
         self,
         settings: Settings,
-        producer_factory: Callable[..., Any] = AIOKafkaProducer,
+        producerFactory: Callable[..., Any] = AIOKafkaProducer,
     ) -> None:
-        self._settings = settings
-        self._producer_factory = producer_factory
-        self._producer: Any | None = None
+        try:
+            self._settings = settings
+            self._producerFactory = producerFactory
+            self._producer: Any | None = None
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in __init__: {e}")
+            raise
 
     async def start(self) -> None:
         """Start and retain the shared Kafka producer.
@@ -43,10 +47,10 @@ class KafkaProducerService:
         if self._producer is not None:
             return
         try:
-            self._producer = self._producer_factory(
-                bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            self._producer = self._producerFactory(
+                bootstrap_servers=self._settings.kafkaBootstrapServers,
                 enable_idempotence=True,
-                request_timeout_ms=self._settings.kafka_request_timeout_ms,
+                request_timeout_ms=self._settings.kafkaRequestTimeoutMs,
             )
             await self._producer.start()
         except Exception as exc:
@@ -69,23 +73,23 @@ class KafkaProducerService:
             await self._producer.stop()
             self._producer = None
 
-    def _require_started(self) -> Any:
+    def _requireStarted(self) -> Any:
         if self._producer is None:
             raise RuntimeError("Kafka producer service has not been started.")
         return self._producer
 
-    async def publish_records(
+    async def publishRecords(
         self,
         filename: str,
         records: list[TrafficRecord],
-        request_id: UUID | None = None,
+        requestId: UUID | None = None,
     ) -> UUID:
         """Publish parsed records as a versioned request.
 
         Args:
             filename: Safe source filename.
             records: Parsed traffic observations.
-            request_id: Optional caller-provided event identifier.
+            requestId: Optional caller-provided event identifier.
 
         Returns:
             The published request identifier.
@@ -94,20 +98,24 @@ class KafkaProducerService:
             RuntimeError: If the service has not started.
             KafkaError: If Kafka rejects the event.
         """
-        event = KafkaAnalysisRequest(
-            request_id=request_id or uuid4(),
-            filename=filename,
-            records=records,
-        )
-        producer = self._require_started()
-        await producer.send_and_wait(
-            self._settings.kafka_request_topic,
-            key=str(event.request_id).encode(),
-            value=event.model_dump_json().encode(),
-        )
-        return event.request_id
+        try:
+            event = KafkaAnalysisRequest(
+                requestId=requestId or uuid4(),
+                filename=filename,
+                records=records,
+            )
+            producer = self._requireStarted()
+            await producer.send_and_wait(
+                self._settings.kafkaRequestTopic,
+                key=str(event.requestId).encode(),
+                value=event.model_dump_json().encode(),
+            )
+            return event.requestId
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in publishRecords: {e}")
+            raise
 
-    async def publish_result(self, event: KafkaAnalysisResult) -> None:
+    async def publishResult(self, event: KafkaAnalysisResult) -> None:
         """Publish a versioned analysis result.
 
         Args:
@@ -120,14 +128,18 @@ class KafkaProducerService:
             RuntimeError: If the service has not started.
             KafkaError: If Kafka rejects the event.
         """
-        producer = self._require_started()
-        await producer.send_and_wait(
-            self._settings.kafka_result_topic,
-            key=str(event.request_id).encode(),
-            value=event.model_dump_json().encode(),
-        )
+        try:
+            producer = self._requireStarted()
+            await producer.send_and_wait(
+                self._settings.kafkaResultTopic,
+                key=str(event.requestId).encode(),
+                value=event.model_dump_json().encode(),
+            )
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in publishResult: {e}")
+            raise
 
-    async def publish_file(self, path: Path) -> KafkaPublishItem:
+    async def publishFile(self, path: Path) -> KafkaPublishItem:
         """Parse and publish one local traffic file.
 
         Args:
@@ -140,34 +152,38 @@ class KafkaProducerService:
             None.
         """
         try:
-            content = await read_text_file_async(path)
-            records = parse_traffic_text(content)
-            request_id = await self.publish_records(path.name, records)
-            return KafkaPublishItem(
-                filename=path.name,
-                status=ProcessingStatus.COMPLETED,
-                request_id=request_id,
-            )
-        except TrafficCounterError as exc:
-            return KafkaPublishItem(
-                filename=path.name,
-                status=ProcessingStatus.FAILED,
-                error=ErrorDetail(code=exc.code, message=exc.message),
-            )
-        except (OSError, UnicodeError) as exc:
-            return KafkaPublishItem(
-                filename=path.name,
-                status=ProcessingStatus.FAILED,
-                error=ErrorDetail(code=ErrorCode.FILE_READ_ERROR, message=str(exc)),
-            )
-        except Exception as exc:
-            return KafkaPublishItem(
-                filename=path.name,
-                status=ProcessingStatus.FAILED,
-                error=ErrorDetail(code=ErrorCode.KAFKA_PUBLISH_ERROR, message=str(exc)),
-            )
+            try:
+                content = await readTextFileAsync(path)
+                records = parseTrafficText(content)
+                requestId = await self.publishRecords(path.name, records)
+                return KafkaPublishItem(
+                    filename=path.name,
+                    status=ProcessingStatus.COMPLETED,
+                    requestId=requestId,
+                )
+            except TrafficCounterError as exc:
+                return KafkaPublishItem(
+                    filename=path.name,
+                    status=ProcessingStatus.FAILED,
+                    error=ErrorDetail(code=exc.code, message=exc.message),
+                )
+            except (OSError, UnicodeError) as exc:
+                return KafkaPublishItem(
+                    filename=path.name,
+                    status=ProcessingStatus.FAILED,
+                    error=ErrorDetail(code=ErrorCode.FILE_READ_ERROR, message=str(exc)),
+                )
+            except Exception as exc:
+                return KafkaPublishItem(
+                    filename=path.name,
+                    status=ProcessingStatus.FAILED,
+                    error=ErrorDetail(code=ErrorCode.KAFKA_PUBLISH_ERROR, message=str(exc)),
+                )
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in publishFile: {e}")
+            raise
 
-    async def publish_files(
+    async def publishFiles(
         self,
         paths: list[Path],
         concurrency: int,
@@ -184,18 +200,26 @@ class KafkaProducerService:
         Raises:
             ValueError: If concurrency is not positive.
         """
-        if concurrency < 1:
-            raise ValueError("concurrency must be positive.")
-        semaphore = asyncio.Semaphore(concurrency)
-        results: list[KafkaPublishItem | None] = [None] * len(paths)
+        try:
+            if concurrency < 1:
+                raise ValueError("concurrency must be positive.")
+            semaphore = asyncio.Semaphore(concurrency)
+            results: list[KafkaPublishItem | None] = [None] * len(paths)
 
-        async def publish_one(index: int, path: Path) -> None:
-            """Store one publish outcome at its original input index."""
-            async with semaphore:
-                results[index] = await self.publish_file(path)
+            async def publishOne(index: int, path: Path) -> None:
+                """Store one publish outcome at its original input index."""
+                try:
+                    async with semaphore:
+                        results[index] = await self.publishFile(path)
+                except Exception as e:  # pragma: no cover - diagnostic boundary
+                    print(f"Error in publishOne: {e}")
+                    raise
 
-        await asyncio.gather(
-            *(publish_one(index, path) for index, path in enumerate(paths)),
-        )
+            await asyncio.gather(
+                *(publishOne(index, path) for index, path in enumerate(paths)),
+            )
 
-        return [result for result in results if result is not None]
+            return [result for result in results if result is not None]
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in publishFiles: {e}")
+            raise

@@ -1,6 +1,6 @@
 import uvicorn
 
-from src.config import get_settings
+from src.config import getSettings
 
 
 def main() -> None:
@@ -16,16 +16,16 @@ def main() -> None:
         pydantic.ValidationError: If runtime configuration is invalid.
         RuntimeError: If Uvicorn cannot start the application.
     """
-    settings = get_settings()
+    settings = getSettings()
     uvicorn.run(
         "src.main:app",
-        host=settings.app_host,
-        port=settings.app_port,
-        workers=settings.app_workers,
-        reload=settings.app_reload,
-        timeout_keep_alive=settings.keep_alive_timeout_seconds,
-        timeout_graceful_shutdown=settings.graceful_shutdown_timeout_seconds,
-        log_level=settings.log_level.lower(),
+        host=settings.appHost,
+        port=settings.appPort,
+        workers=settings.appWorkers,
+        reload=settings.appReload,
+        timeout_keep_alive=settings.keepAliveTimeoutSeconds,
+        timeout_graceful_shutdown=settings.gracefulShutdownTimeoutSeconds,
+        log_level=settings.logLevel.lower(),
     )
 
 

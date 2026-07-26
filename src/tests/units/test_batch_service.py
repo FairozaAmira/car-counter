@@ -33,7 +33,7 @@ async def test_batch_preserves_order_and_isolates_failures() -> None:
         ),
     ]
 
-    response = await TrafficAnalysisService().analyze_uploads(uploads, concurrency=2)
+    response = await TrafficAnalysisService().analyzeUploads(uploads, concurrency=2)
 
     assert [item.filename for item in response.items] == [
         "first.txt",
@@ -46,10 +46,10 @@ async def test_batch_preserves_order_and_isolates_failures() -> None:
         ProcessingStatus.COMPLETED,
     ]
     assert response.items[1].error is not None
-    assert response.items[1].error.code == "invalid_timestamp"
+    assert response.items[1].error.code == "ERR00033"
 
 
 def test_controller_rejects_invalid_concurrency() -> None:
     """Verify controller concurrency configuration fails fast."""
-    with pytest.raises(ValueError, match="batch_concurrency"):
-        TrafficController(TrafficAnalysisService(), object(), batch_concurrency=0)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="batchConcurrency"):
+        TrafficController(TrafficAnalysisService(), object(), batchConcurrency=0)  # type: ignore[arg-type]

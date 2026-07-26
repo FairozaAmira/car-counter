@@ -7,7 +7,7 @@ from alembic import context
 from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from src.config import get_settings
+from src.config import getSettings
 from src.db.models import TrafficAnalysisResult
 
 config = context.config
@@ -15,10 +15,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = TrafficAnalysisResult.metadata
+targetMetadata = TrafficAnalysisResult.metadata
 
 
-def get_database_url() -> str:
+def getDatabaseUrl() -> str:
     """Return the configured Alembic database URL.
 
     Args:
@@ -30,13 +30,13 @@ def get_database_url() -> str:
     Raises:
         RuntimeError: If ``DATABASE_URL`` is not configured.
     """
-    database_url = get_settings().database_url
-    if database_url is None:
+    databaseUrl = getSettings().databaseUrl
+    if databaseUrl is None:
         raise RuntimeError("DATABASE_URL is required for Alembic commands.")
-    return database_url
+    return databaseUrl
 
 
-def run_migrations_offline() -> None:
+def runMigrationsOffline() -> None:
     """Run migrations without creating a database connection.
 
     Args:
@@ -49,8 +49,8 @@ def run_migrations_offline() -> None:
         RuntimeError: If database configuration is missing.
     """
     context.configure(
-        url=get_database_url(),
-        target_metadata=target_metadata,
+        url=getDatabaseUrl(),
+        target_metadata=targetMetadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
@@ -59,7 +59,7 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def run_sync_migrations(connection: Connection) -> None:
+def runSyncMigrations(connection: Connection) -> None:
     """Run migrations with a synchronous connection adapter.
 
     Args:
@@ -71,16 +71,20 @@ def run_sync_migrations(connection: Connection) -> None:
     Raises:
         Exception: If migration execution fails.
     """
-    context.configure(
-        connection=connection,
-        target_metadata=target_metadata,
-        compare_type=True,
-    )
-    with context.begin_transaction():
-        context.run_migrations()
+    try:
+        context.configure(
+            connection=connection,
+            target_metadata=targetMetadata,
+            compare_type=True,
+        )
+        with context.begin_transaction():
+            context.run_migrations()
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in runSyncMigrations: {e}")
+        raise
 
 
-async def run_async_migrations() -> None:
+async def runAsyncMigrations() -> None:
     """Create an async engine and run online migrations.
 
     Args:
@@ -93,7 +97,7 @@ async def run_async_migrations() -> None:
         Exception: If connection or migration execution fails.
     """
     configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = get_database_url()
+    configuration["sqlalchemy.url"] = getDatabaseUrl()
     connectable = async_engine_from_config(
         configuration,
         prefix="sqlalchemy.",
@@ -101,12 +105,12 @@ async def run_async_migrations() -> None:
     )
     try:
         async with connectable.connect() as connection:
-            await connection.run_sync(run_sync_migrations)
+            await connection.run_sync(runSyncMigrations)
     finally:
         await connectable.dispose()
 
 
-def run_migrations_online() -> None:
+def runMigrationsOnline() -> None:
     """Run migrations against the configured PostgreSQL database.
 
     Args:
@@ -118,10 +122,10 @@ def run_migrations_online() -> None:
     Raises:
         Exception: If migration execution fails.
     """
-    asyncio.run(run_async_migrations())
+    asyncio.run(runAsyncMigrations())
 
 
 if context.is_offline_mode():
-    run_migrations_offline()
+    runMigrationsOffline()
 else:
-    run_migrations_online()
+    runMigrationsOnline()

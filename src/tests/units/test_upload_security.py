@@ -5,16 +5,16 @@ from fastapi import UploadFile
 
 from src.services.traffic import TrafficAnalysisService
 from src.utils.errors import UploadValidationError
-from src.utils.files import safe_upload_filename
+from src.utils.files import safeUploadFilename
 
 
-def upload(filename: str, content: bytes, content_type: str = "text/plain") -> UploadFile:
+def upload(filename: str, content: bytes, contentType: str = "text/plain") -> UploadFile:
     """Create an upload fixture.
 
     Args:
         filename: Client-provided filename.
         content: Raw file bytes.
-        content_type: Client-provided MIME type.
+        contentType: Client-provided MIME type.
 
     Returns:
         A FastAPI upload object.
@@ -25,7 +25,7 @@ def upload(filename: str, content: bytes, content_type: str = "text/plain") -> U
     return UploadFile(
         filename=filename,
         file=BytesIO(content),
-        headers={"content-type": content_type},
+        headers={"content-type": contentType},
     )
 
 
@@ -34,17 +34,17 @@ async def test_upload_rejects_unsupported_extension() -> None:
     service = TrafficAnalysisService()
 
     with pytest.raises(UploadValidationError, match="extension"):
-        await service.analyze_upload(upload("traffic.exe", b"content"))
+        await service.analyzeUpload(upload("traffic.exe", b"content"))
 
 
 async def test_upload_rejects_oversized_content() -> None:
     """Verify content larger than the configured limit returns a safe error."""
-    service = TrafficAnalysisService(upload_max_bytes=3)
+    service = TrafficAnalysisService(uploadMaxBytes=3)
 
     with pytest.raises(UploadValidationError) as captured:
-        await service.analyze_upload(upload("traffic.txt", b"1234"))
+        await service.analyzeUpload(upload("traffic.txt", b"1234"))
 
-    assert captured.value.status_code == 413
+    assert captured.value.statusCode == 413
 
 
 async def test_upload_rejects_binary_content() -> None:
@@ -52,15 +52,15 @@ async def test_upload_rejects_binary_content() -> None:
     service = TrafficAnalysisService()
 
     with pytest.raises(UploadValidationError) as captured:
-        await service.analyze_upload(upload("traffic.txt", b"bad\x00data"))
+        await service.analyzeUpload(upload("traffic.txt", b"bad\x00data"))
 
-    assert captured.value.status_code == 415
+    assert captured.value.statusCode == 415
 
 
 def test_upload_service_rejects_invalid_size_configuration() -> None:
     """Verify maximum upload size must be positive."""
-    with pytest.raises(ValueError, match="upload_max_bytes"):
-        TrafficAnalysisService(upload_max_bytes=0)
+    with pytest.raises(ValueError, match="uploadMaxBytes"):
+        TrafficAnalysisService(uploadMaxBytes=0)
 
 
 async def test_upload_rejects_invalid_utf8() -> None:
@@ -68,15 +68,15 @@ async def test_upload_rejects_invalid_utf8() -> None:
     service = TrafficAnalysisService()
 
     with pytest.raises(UploadValidationError) as captured:
-        await service.analyze_upload(upload("traffic.txt", b"\xff"))
+        await service.analyzeUpload(upload("traffic.txt", b"\xff"))
 
-    assert captured.value.code == "invalid_encoding"
+    assert captured.value.code == "ERR00045"
 
 
 async def test_batch_rejects_invalid_concurrency() -> None:
     """Verify batch concurrency must be positive."""
     with pytest.raises(ValueError, match="concurrency"):
-        await TrafficAnalysisService().analyze_uploads([], concurrency=0)
+        await TrafficAnalysisService().analyzeUploads([], concurrency=0)
 
 
 def test_safe_filename_handles_missing_and_invalid_names() -> None:
@@ -88,11 +88,11 @@ def test_safe_filename_handles_missing_and_invalid_names() -> None:
     )
     invalid = upload("???", b"")
 
-    assert safe_upload_filename(missing, index=2) == "upload-3.txt"
+    assert safeUploadFilename(missing, index=2) == "upload-3.txt"
     with pytest.raises(UploadValidationError) as captured:
-        safe_upload_filename(invalid)
+        safeUploadFilename(invalid)
 
-    assert captured.value.code == "invalid_filename"
+    assert captured.value.code == "ERR00040"
 
 
 async def test_upload_rejects_unsupported_mime_type() -> None:
@@ -100,6 +100,6 @@ async def test_upload_rejects_unsupported_mime_type() -> None:
     service = TrafficAnalysisService()
 
     with pytest.raises(UploadValidationError) as captured:
-        await service.analyze_upload(upload("traffic.txt", b"content", "application/pdf"))
+        await service.analyzeUpload(upload("traffic.txt", b"content", "application/pdf"))
 
-    assert captured.value.code == "unsupported_media_type"
+    assert captured.value.code == "ERR00042"

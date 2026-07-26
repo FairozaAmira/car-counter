@@ -14,13 +14,13 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self,
         request: Request,
-        call_next: RequestResponseEndpoint,
+        callNext: RequestResponseEndpoint,
     ) -> Response:
         """Process one request with correlation context.
 
         Args:
             request: Incoming HTTP request.
-            call_next: Next ASGI handler.
+            callNext: Next ASGI handler.
 
         Returns:
             The downstream response with an ``X-Request-ID`` header.
@@ -28,30 +28,34 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         Raises:
             Exception: Re-raises unhandled downstream errors.
         """
-        request_id = request.headers.get("X-Request-ID") or str(uuid4())
-        request.state.request_id = request_id
-        started_at = time.perf_counter()
         try:
-            response = await call_next(request)
-        except Exception:
-            logger.exception(
-                "Request failed",
+            requestId = request.headers.get("X-Request-ID") or str(uuid4())
+            request.state.requestId = requestId
+            startedAt = time.perf_counter()
+            try:
+                response = await callNext(request)
+            except Exception:
+                logger.exception(
+                    "Request failed",
+                    extra={
+                        "requestId": requestId,
+                        "method": request.method,
+                        "path": request.url.path,
+                    },
+                )
+                raise
+            response.headers["X-Request-ID"] = requestId
+            logger.info(
+                "Request completed",
                 extra={
-                    "request_id": request_id,
+                    "requestId": requestId,
                     "method": request.method,
                     "path": request.url.path,
+                    "statusCode": response.status_code,
+                    "durationMs": round((time.perf_counter() - startedAt) * 1000, 2),
                 },
             )
+            return response
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in dispatch: {e}")
             raise
-        response.headers["X-Request-ID"] = request_id
-        logger.info(
-            "Request completed",
-            extra={
-                "request_id": request_id,
-                "method": request.method,
-                "path": request.url.path,
-                "status_code": response.status_code,
-                "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
-            },
-        )
-        return response

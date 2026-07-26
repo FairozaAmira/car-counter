@@ -4,24 +4,24 @@ from starlette.requests import Request
 
 from src.config import Settings
 from src.dependencies.security import (
-    _client_identity,
-    authenticate_request,
-    enforce_upload_rate_limit,
+    _clientIdentity,
+    authenticateRequest,
+    enforceUploadRateLimit,
 )
 from src.services.rate_limit import RedisRateLimiter
 from src.utils.errors import AuthenticationError
 
 
 def request_for(
-    peer_host: str | None,
-    forwarded_for: str | None = None,
+    peerHost: str | None,
+    forwardedFor: str | None = None,
     app: FastAPI | None = None,
 ) -> Request:
     """Create a minimal request for identity tests.
 
     Args:
-        peer_host: Direct network peer address.
-        forwarded_for: Optional proxy-provided address.
+        peerHost: Direct network peer address.
+        forwardedFor: Optional proxy-provided address.
 
     Returns:
         A Starlette request.
@@ -30,15 +30,15 @@ def request_for(
         None.
     """
     headers = []
-    if forwarded_for is not None:
-        headers.append((b"x-forwarded-for", forwarded_for.encode()))
+    if forwardedFor is not None:
+        headers.append((b"x-forwarded-for", forwardedFor.encode()))
     return Request(
         {
             "type": "http",
             "method": "POST",
             "path": "/",
             "headers": headers,
-            "client": (peer_host, 1234) if peer_host is not None else None,
+            "client": (peerHost, 1234) if peerHost is not None else None,
             "server": ("test", 80),
             "scheme": "http",
             "app": app,
@@ -48,23 +48,23 @@ def request_for(
 
 async def test_authentication_accepts_disabled_and_valid_keys() -> None:
     """Verify optional API-key authentication behavior."""
-    assert await authenticate_request(Settings(api_key=None), None) is None
-    assert await authenticate_request(Settings(api_key="secret"), "secret") == "secret"
+    assert await authenticateRequest(Settings(apiKey=None), None) is None
+    assert await authenticateRequest(Settings(apiKey="secret"), "secret") == "secret"
 
 
 async def test_authentication_rejects_invalid_key() -> None:
     """Verify invalid credentials produce a safe domain error."""
     try:
-        await authenticate_request(Settings(api_key="secret"), "wrong")
+        await authenticateRequest(Settings(apiKey="secret"), "wrong")
     except AuthenticationError as exc:
-        assert exc.status_code == 401
+        assert exc.statusCode == 401
     else:
         raise AssertionError("Expected invalid authentication to fail.")
 
 
 def test_identity_prefers_hashed_api_key() -> None:
     """Verify rate-limit storage never contains a raw API key."""
-    identity = _client_identity(request_for("127.0.0.1"), "secret", Settings())
+    identity = _clientIdentity(request_for("127.0.0.1"), "secret", Settings())
 
     assert identity.startswith("api-key:")
     assert "secret" not in identity
@@ -72,15 +72,15 @@ def test_identity_prefers_hashed_api_key() -> None:
 
 def test_identity_trusts_forwarding_only_from_configured_proxy() -> None:
     """Verify spoofed forwarding headers are ignored for untrusted peers."""
-    untrusted = _client_identity(
+    untrusted = _clientIdentity(
         request_for("203.0.113.1", "198.51.100.1"),
         None,
-        Settings(trusted_proxy_hosts=("127.0.0.1",)),
+        Settings(trustedProxyHosts=("127.0.0.1",)),
     )
-    trusted = _client_identity(
+    trusted = _clientIdentity(
         request_for("127.0.0.1", "198.51.100.1, 203.0.113.1"),
         None,
-        Settings(trusted_proxy_hosts=("127.0.0.1",)),
+        Settings(trustedProxyHosts=("127.0.0.1",)),
     )
 
     assert untrusted == "ip:203.0.113.1"
@@ -89,22 +89,22 @@ def test_identity_trusts_forwarding_only_from_configured_proxy() -> None:
 
 def test_identity_handles_missing_peer_and_forwarding_header() -> None:
     """Verify identity fallback works without client or forwarding data."""
-    settings = Settings(trusted_proxy_hosts=("127.0.0.1",))
+    settings = Settings(trustedProxyHosts=("127.0.0.1",))
 
-    assert _client_identity(request_for(None), None, settings) == "ip:unknown"
-    assert _client_identity(request_for("127.0.0.1"), None, settings) == "ip:127.0.0.1"
+    assert _clientIdentity(request_for(None), None, settings) == "ip:unknown"
+    assert _clientIdentity(request_for("127.0.0.1"), None, settings) == "ip:127.0.0.1"
 
 
 async def test_enabled_rate_limit_requires_initialized_backend() -> None:
     """Verify enabled limiting rejects a missing shared backend."""
     settings = Settings(
-        rate_limit_enabled=True,
-        rate_limit_redis_url="redis://test",
+        rateLimitEnabled=True,
+        rateLimitRedisUrl="redis://test",
     )
     request = request_for("127.0.0.1", app=FastAPI())
 
     with pytest.raises(RuntimeError, match="not initialized"):
-        await enforce_upload_rate_limit(request, None, settings)
+        await enforceUploadRateLimit(request, None, settings)
 
 
 async def test_enabled_rate_limit_delegates_to_shared_backend() -> None:
@@ -125,13 +125,13 @@ async def test_enabled_rate_limit_delegates_to_shared_backend() -> None:
 
     backend = Backend()
     application = FastAPI()
-    application.state.rate_limiter = RedisRateLimiter(backend, 60, False)
+    application.state.rateLimiter = RedisRateLimiter(backend, 60, False)
     settings = Settings(
-        rate_limit_enabled=True,
-        rate_limit_redis_url="redis://test",
+        rateLimitEnabled=True,
+        rateLimitRedisUrl="redis://test",
     )
 
-    await enforce_upload_rate_limit(
+    await enforceUploadRateLimit(
         request_for("127.0.0.1", app=application),
         None,
         settings,

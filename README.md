@@ -252,8 +252,10 @@ and includes:
 
 The response `id` is the primary key of `traffic_analysis_results`. The table
 also stores the operation kind, a timezone-aware UTC creation timestamp, timing,
-and the complete response as PostgreSQL JSONB. A database write failure is rolled
-back and returned as HTTP 503 with the safe `database_write_error` code.
+and response-aligned camelCase columns. Nested objects are unnested into scalar
+columns, while arrays containing objects use PostgreSQL JSONB. A database write
+failure is rolled back and returned as HTTP 503 with the safe
+`ERR00020` code.
 
 All dates returned by the POST APIs use `DD-MM-YYYY`; traffic observations that
 require a time use `DD-MM-YYYY HH:MM:SS`. Uploaded machine-generated traffic files retain
@@ -309,7 +311,7 @@ Never use a production database for local development or tests.
    make db-current
    ```
 
-   The current revision should include `20260726_0001 (head)`.
+   The current revision should include `20260726_0002 (head)`.
 
 6. Start the API:
 
@@ -327,7 +329,7 @@ Never use a production database for local development or tests.
    docker compose exec -T postgres psql \
      --username application \
      --dbname application \
-     --command "SELECT ALL FROM traffic_analysis_results ORDER BY created_at DESC LIMIT 10;"
+     --command 'SELECT * FROM traffic_analysis_results ORDER BY "createdAt" DESC LIMIT 10;'
    ```
 
 The PostgreSQL named volume preserves local data across `docker compose down`.
@@ -348,8 +350,73 @@ make migration-check
 target. Review every generated revision before applying it. The initial migration
 creates `traffic_analysis_results` with upgrade and downgrade logic, a UUID
 primary key, constraints for result kind and non-negative timing, and an index on
-kind plus creation time. `make migration-check` applies pending migrations and
-fails when SQLAlchemy metadata contains schema changes without a migration.
+kind plus creation time. Revision `20260726_0002` migrates stored responses to
+camelCase, response-aligned columns and unnests the `leastCarsPeriod` object.
+`make migration-check` applies pending migrations and fails when SQLAlchemy
+metadata contains schema changes without a migration.
+
+### Add a database column
+
+Use Alembic for every schema change. Do not change PostgreSQL manually.
+
+1. Add the camelCase mapped attribute and column definition to the appropriate
+   SQLAlchemy model under `src/db/models/`.
+2. Generate a migration with a concise description:
+
+   ```bash
+   make db-revision MESSAGE="add resource field"
+   ```
+
+3. Review the new file under `src/migrations/versions/`. Its `upgrade()` function
+   must add the column and its `downgrade()` function must remove the same column.
+   Review the type, nullability, default, indexes, constraints, and any data
+   backfill. Do not accept generated migration code without reviewing it.
+4. Apply the migration to a disposable local database:
+
+   ```bash
+   make db-upgrade
+   make db-current
+   make migration-check
+   ```
+
+5. Update repositories, schemas, API responses, tests, and documentation that use
+   the column, then run `make ci`.
+
+For a required column on a table that already contains rows, first add it as
+nullable or with a safe server default, backfill existing rows, and only then
+make it non-nullable. Test this process outside production before deployment.
+
+### Downgrade and remove a newly added column
+
+To reverse the latest migration, first confirm the current revision and inspect
+the migration's `downgrade()` function. The default `REVISION=-1` moves back one
+revision:
+
+```bash
+make db-current
+make db-downgrade
+make db-current
+```
+
+To downgrade to a specific revision:
+
+```bash
+make db-history
+make db-downgrade REVISION=<target-revision>
+make db-current
+```
+
+The column is dropped only when the selected migration's `downgrade()` function
+contains the corresponding `op.drop_column(...)`. Dropping a column permanently
+from the current schema requires a new migration: remove the mapped attribute
+from the SQLAlchemy model, run `make db-revision MESSAGE="drop resource field"`,
+and review that the new `upgrade()` drops the column while `downgrade()` restores
+it. Then apply it with `make db-upgrade`.
+
+Downgrading or dropping a column can permanently delete its data. Use a
+disposable database for validation, back up required data, never test against
+production, and coordinate application rollback compatibility before executing
+the change in staging or production.
 
 When starting the complete stack with `docker compose up --build`, the one-off
 `migrate` service applies Alembic migrations before the API is allowed to start.
@@ -507,55 +574,55 @@ Successful single-file response:
 
 ```json
 {
-  "total_cars": 398,
-  "daily_totals": [
+  "totalCars": 398,
+  "dailyTotals": [
     {
       "date": "01-12-2021",
-      "car_count": 179
+      "carCount": 179
     },
     {
       "date": "05-12-2021",
-      "car_count": 81
+      "carCount": 81
     },
     {
       "date": "08-12-2021",
-      "car_count": 134
+      "carCount": 134
     },
     {
       "date": "09-12-2021",
-      "car_count": 4
+      "carCount": 4
     }
   ],
-  "top_half_hours": [
+  "topHalfHours": [
     {
       "timestamp": "01-12-2021 07:30:00",
-      "car_count": 46
+      "carCount": 46
     },
     {
       "timestamp": "01-12-2021 08:00:00",
-      "car_count": 42
+      "carCount": 42
     },
     {
       "timestamp": "08-12-2021 18:00:00",
-      "car_count": 33
+      "carCount": 33
     }
   ],
-  "least_cars_period": {
+  "leastCarsPeriod": {
     "start": "01-12-2021 05:00:00",
     "end": "01-12-2021 06:30:00",
-    "total_cars": 31,
+    "totalCars": 31,
     "records": [
       {
         "timestamp": "01-12-2021 05:00:00",
-        "car_count": 5
+        "carCount": 5
       },
       {
         "timestamp": "01-12-2021 05:30:00",
-        "car_count": 12
+        "carCount": 12
       },
       {
         "timestamp": "01-12-2021 06:00:00",
-        "car_count": 14
+        "carCount": 14
       }
     ]
   },
@@ -573,15 +640,32 @@ Success is HTTP 200. Common responses are 401 (invalid key), 413 (too large),
 415 (unsupported file), 422 (invalid traffic data), and 429 (limit exceeded).
 HTTP 429 includes `Retry-After`. Batch item failures remain inside a 200 response.
 
-Standard request and Kafka error codes are:
+All application failures use a stable code with an explicit HTTP status:
 
-| Code | Message |
-| --- | --- |
-| `ERR00010` | Kafka Producer Initialization Error |
-| `ERR00011` | Kafka Consumer Initialization Error |
-| `ERR00012` | Error while executing Kafka consumer action |
-| `ERR00030` | Invalid or missing JSON request body |
-| `ERR00031` | Invalid request body |
+| Code | HTTP status | Meaning |
+| --- | ---: | --- |
+| `ERR00010` | 500 | Kafka producer initialization failure |
+| `ERR00011` | 500 | Kafka consumer initialization failure |
+| `ERR00012` | 500 | Kafka consumer action failure |
+| `ERR00013` | 500 | Kafka publish failure |
+| `ERR00020` | 503 | Database persistence failure |
+| `ERR00021` | 401 | Authentication failure |
+| `ERR00022` | 429 | Rate limit exceeded |
+| `ERR00030` | 400 | Invalid or missing JSON request body |
+| `ERR00031` | 422 | Invalid request body |
+| `ERR00032` | 422 | Invalid traffic record |
+| `ERR00033` | 422 | Invalid timestamp |
+| `ERR00034` | 422 | Invalid car count |
+| `ERR00035` | 422 | Duplicate timestamp |
+| `ERR00036` | 422 | Empty input |
+| `ERR00037` | 422 | Missing contiguous traffic period |
+| `ERR00040` | 400 | Invalid filename |
+| `ERR00041` | 415 | Unsupported file extension |
+| `ERR00042` | 415 | Unsupported media type |
+| `ERR00043` | 413 | File too large |
+| `ERR00044` | 415 | Invalid file content |
+| `ERR00045` | 415 | Invalid file encoding |
+| `ERR00046` | 500 | File read failure |
 
 Check the database after either cURL request. Copy the `id` from the API response
 and replace `<response-id>`:
@@ -590,7 +674,7 @@ and replace `<response-id>`:
 docker compose exec -T postgres psql \
   --username application \
   --dbname application \
-  --command "SELECT id, analysis_kind, created_at, time_taken, response_payload FROM traffic_analysis_results WHERE id = '<response-id>';"
+  --command "SELECT id, \"analysisKind\", \"createdAt\", \"timeTaken\", \"totalCars\", \"dailyTotals\", \"topHalfHours\", \"leastCarsPeriodStart\", \"leastCarsPeriodEnd\", \"leastCarsPeriodTotalCars\", \"leastCarsPeriodRecords\", items FROM traffic_analysis_results WHERE id = '<response-id>';"
 ```
 
 The query should return exactly one row. If the local PostgreSQL database or user
@@ -602,20 +686,20 @@ Check the five most recently stored results:
 docker compose exec -T postgres psql \
   --username application \
   --dbname application \
-  --command "SELECT * FROM traffic_analysis_results ORDER BY created_at DESC LIMIT 5;"
+  --command 'SELECT * FROM traffic_analysis_results ORDER BY "createdAt" DESC LIMIT 5;'
 ```
 
-Example result (`response_payload` is shortened here for readability):
+Example scalar result columns (JSONB list columns are omitted for readability):
 
 ```text
-                  id                  | analysis_kind |          created_at          | time_taken | response_payload
---------------------------------------+---------------+------------------------------+------------+----------------------------
- 7d963c7d-71a8-40a7-a433-57aac4676f25 | batch         | 2026-07-26 06:15:21.42031+00 |       3.87 | {"id": "...", "items": ...}
- 9d3f51e8-7397-4a11-b9bb-97f44d0d821e | single        | 2026-07-26 06:14:02.91854+00 |       4.32 | {"id": "...", "total_cars": 398, ...}
+                  id                  | analysisKind |          createdAt           | timeTaken | totalCars
+--------------------------------------+--------------+------------------------------+-----------+----------
+ 7d963c7d-71a8-40a7-a433-57aac4676f25 | batch        | 2026-07-26 06:15:21.42031+00 |      3.87 | null
+ 9d3f51e8-7397-4a11-b9bb-97f44d0d821e | single       | 2026-07-26 06:14:02.91854+00 |      4.32 |       398
 (2 rows)
 ```
 
-PostgreSQL stores `created_at` as timezone-aware UTC. The API formats the
+PostgreSQL stores `createdAt` as timezone-aware UTC. The API formats the
 user-facing `createdAt` value as `DD-MM-YYYY`.
 
 

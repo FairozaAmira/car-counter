@@ -5,19 +5,20 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 
-from src.utils.formatting import format_response_date, format_response_datetime
+from src.utils.errors import ErrorCode
+from src.utils.formatting import formatResponseDate, formatResponseDatetime
 
 ResponseDate = Annotated[
     date,
-    PlainSerializer(format_response_date, return_type=str, when_used="json"),
+    PlainSerializer(formatResponseDate, return_type=str, when_used="json"),
 ]
 ResponseDateTime = Annotated[
     datetime,
-    PlainSerializer(format_response_datetime, return_type=str, when_used="json"),
+    PlainSerializer(formatResponseDatetime, return_type=str, when_used="json"),
 ]
 CreatedAtDate = Annotated[
     datetime,
-    PlainSerializer(format_response_date, return_type=str, when_used="json"),
+    PlainSerializer(formatResponseDate, return_type=str, when_used="json"),
 ]
 
 
@@ -27,7 +28,7 @@ class TrafficRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     timestamp: datetime
-    car_count: int = Field(ge=0)
+    carCount: int = Field(ge=0)
 
 
 class DailyTotal(BaseModel):
@@ -36,7 +37,7 @@ class DailyTotal(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     date: date
-    car_count: int = Field(ge=0)
+    carCount: int = Field(ge=0)
 
 
 class LeastCarsPeriod(BaseModel):
@@ -46,7 +47,7 @@ class LeastCarsPeriod(BaseModel):
 
     start: datetime
     end: datetime
-    total_cars: int = Field(ge=0)
+    totalCars: int = Field(ge=0)
     records: list[TrafficRecord] = Field(min_length=3, max_length=3)
 
 
@@ -55,10 +56,10 @@ class AnalysisResult(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    total_cars: int = Field(ge=0)
-    daily_totals: list[DailyTotal]
-    top_half_hours: list[TrafficRecord]
-    least_cars_period: LeastCarsPeriod
+    totalCars: int = Field(ge=0)
+    dailyTotals: list[DailyTotal]
+    topHalfHours: list[TrafficRecord]
+    leastCarsPeriod: LeastCarsPeriod
 
 
 class TrafficRecordResponse(BaseModel):
@@ -67,7 +68,7 @@ class TrafficRecordResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     timestamp: ResponseDateTime
-    car_count: int = Field(ge=0)
+    carCount: int = Field(ge=0)
 
 
 class DailyTotalResponse(BaseModel):
@@ -76,7 +77,7 @@ class DailyTotalResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     date: ResponseDate
-    car_count: int = Field(ge=0)
+    carCount: int = Field(ge=0)
 
 
 class LeastCarsPeriodResponse(BaseModel):
@@ -86,7 +87,7 @@ class LeastCarsPeriodResponse(BaseModel):
 
     start: ResponseDateTime
     end: ResponseDateTime
-    total_cars: int = Field(ge=0)
+    totalCars: int = Field(ge=0)
     records: list[TrafficRecordResponse] = Field(min_length=3, max_length=3)
 
 
@@ -95,10 +96,10 @@ class AnalysisDataResponse(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    total_cars: int = Field(ge=0)
-    daily_totals: list[DailyTotalResponse]
-    top_half_hours: list[TrafficRecordResponse]
-    least_cars_period: LeastCarsPeriodResponse
+    totalCars: int = Field(ge=0)
+    dailyTotals: list[DailyTotalResponse]
+    topHalfHours: list[TrafficRecordResponse]
+    leastCarsPeriod: LeastCarsPeriodResponse
 
 
 class ResponseMetadata(BaseModel):
@@ -107,11 +108,11 @@ class ResponseMetadata(BaseModel):
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
     id: UUID = Field(description="Unique identifier for this API operation")
-    created_at: CreatedAtDate = Field(
+    createdAt: CreatedAtDate = Field(
         alias="createdAt",
         description="UTC creation date formatted as DD-MM-YYYY",
     )
-    time_taken: float = Field(
+    timeTaken: float = Field(
         alias="timeTaken",
         ge=0,
         description="Operation duration in milliseconds, rounded to two decimal places",
@@ -135,7 +136,7 @@ class ErrorDetail(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    code: str
+    code: ErrorCode
     message: str
 
 

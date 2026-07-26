@@ -1,5 +1,6 @@
 """Application exception hierarchy and stable error catalog."""
 
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
@@ -10,33 +11,68 @@ class ErrorCode(StrEnum):
     KAFKA_PRODUCER_INITIALIZATION = "ERR00010"
     KAFKA_CONSUMER_INITIALIZATION = "ERR00011"
     KAFKA_CONSUMER_ACTION = "ERR00012"
+    KAFKA_PUBLISH_ERROR = "ERR00013"
+    DATABASE_WRITE_ERROR = "ERR00020"
+    AUTHENTICATION_FAILED = "ERR00021"
+    RATE_LIMIT_EXCEEDED = "ERR00022"
     INVALID_JSON_REQUEST_BODY = "ERR00030"
     INVALID_REQUEST_BODY = "ERR00031"
-    DATABASE_WRITE_ERROR = "database_write_error"
-    AUTHENTICATION_FAILED = "authentication_failed"
-    RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
-    INVALID_RECORD = "invalid_record"
-    INVALID_TIMESTAMP = "invalid_timestamp"
-    INVALID_CAR_COUNT = "invalid_car_count"
-    DUPLICATE_TIMESTAMP = "duplicate_timestamp"
-    EMPTY_INPUT = "empty_input"
-    NO_CONTIGUOUS_PERIOD = "no_contiguous_period"
-    INVALID_FILENAME = "invalid_filename"
-    UNSUPPORTED_FILE_EXTENSION = "unsupported_file_extension"
-    UNSUPPORTED_MEDIA_TYPE = "unsupported_media_type"
-    FILE_TOO_LARGE = "file_too_large"
-    INVALID_FILE_CONTENT = "invalid_file_content"
-    INVALID_ENCODING = "invalid_encoding"
-    FILE_READ_ERROR = "file_read_error"
-    KAFKA_PUBLISH_ERROR = "kafka_publish_error"
+    INVALID_RECORD = "ERR00032"
+    INVALID_TIMESTAMP = "ERR00033"
+    INVALID_CAR_COUNT = "ERR00034"
+    DUPLICATE_TIMESTAMP = "ERR00035"
+    EMPTY_INPUT = "ERR00036"
+    NO_CONTIGUOUS_PERIOD = "ERR00037"
+    INVALID_FILENAME = "ERR00040"
+    UNSUPPORTED_FILE_EXTENSION = "ERR00041"
+    UNSUPPORTED_MEDIA_TYPE = "ERR00042"
+    FILE_TOO_LARGE = "ERR00043"
+    INVALID_FILE_CONTENT = "ERR00044"
+    INVALID_ENCODING = "ERR00045"
+    FILE_READ_ERROR = "ERR00046"
 
 
-STANDARD_ERROR_MESSAGES: Final[dict[ErrorCode, str]] = {
-    ErrorCode.KAFKA_PRODUCER_INITIALIZATION: "Kafka Producer Initialization Error",
-    ErrorCode.KAFKA_CONSUMER_INITIALIZATION: "Kafka Consumer Initialization Error",
-    ErrorCode.KAFKA_CONSUMER_ACTION: "Error while executing Kafka consumer action",
-    ErrorCode.INVALID_JSON_REQUEST_BODY: "Invalid or missing JSON request body",
-    ErrorCode.INVALID_REQUEST_BODY: "Invalid request body",
+@dataclass(frozen=True)
+class ErrorDefinition:
+    """Define the safe defaults for one stable application error."""
+
+    message: str
+    statusCode: int
+
+
+ERROR_DEFINITIONS: Final[dict[ErrorCode, ErrorDefinition]] = {
+    ErrorCode.KAFKA_PRODUCER_INITIALIZATION: ErrorDefinition(
+        "Kafka Producer Initialization Error", 500
+    ),
+    ErrorCode.KAFKA_CONSUMER_INITIALIZATION: ErrorDefinition(
+        "Kafka Consumer Initialization Error", 500
+    ),
+    ErrorCode.KAFKA_CONSUMER_ACTION: ErrorDefinition(
+        "Error while executing Kafka consumer action", 500
+    ),
+    ErrorCode.KAFKA_PUBLISH_ERROR: ErrorDefinition("Kafka publish error", 500),
+    ErrorCode.DATABASE_WRITE_ERROR: ErrorDefinition(
+        "The analysis result could not be stored.", 503
+    ),
+    ErrorCode.AUTHENTICATION_FAILED: ErrorDefinition("A valid API key is required.", 401),
+    ErrorCode.RATE_LIMIT_EXCEEDED: ErrorDefinition("Too many requests.", 429),
+    ErrorCode.INVALID_JSON_REQUEST_BODY: ErrorDefinition(
+        "Invalid or missing JSON request body", 400
+    ),
+    ErrorCode.INVALID_REQUEST_BODY: ErrorDefinition("Invalid request body", 422),
+    ErrorCode.INVALID_RECORD: ErrorDefinition("Invalid traffic record", 422),
+    ErrorCode.INVALID_TIMESTAMP: ErrorDefinition("Invalid timestamp", 422),
+    ErrorCode.INVALID_CAR_COUNT: ErrorDefinition("Invalid car count", 422),
+    ErrorCode.DUPLICATE_TIMESTAMP: ErrorDefinition("Duplicate timestamp", 422),
+    ErrorCode.EMPTY_INPUT: ErrorDefinition("Input is empty", 422),
+    ErrorCode.NO_CONTIGUOUS_PERIOD: ErrorDefinition("No contiguous period", 422),
+    ErrorCode.INVALID_FILENAME: ErrorDefinition("Invalid filename", 400),
+    ErrorCode.UNSUPPORTED_FILE_EXTENSION: ErrorDefinition("Unsupported file extension", 415),
+    ErrorCode.UNSUPPORTED_MEDIA_TYPE: ErrorDefinition("Unsupported media type", 415),
+    ErrorCode.FILE_TOO_LARGE: ErrorDefinition("File is too large", 413),
+    ErrorCode.INVALID_FILE_CONTENT: ErrorDefinition("Invalid file content", 415),
+    ErrorCode.INVALID_ENCODING: ErrorDefinition("Invalid file encoding", 415),
+    ErrorCode.FILE_READ_ERROR: ErrorDefinition("File read error", 500),
 }
 
 
@@ -46,7 +82,7 @@ class TrafficCounterError(Exception):
     Args:
         code: Stable machine-readable error code.
         message: Safe user-facing error message.
-        status_code: HTTP status used at the API boundary.
+        statusCode: HTTP status used at the API boundary.
 
     Returns:
         A domain exception instance.
@@ -55,11 +91,23 @@ class TrafficCounterError(Exception):
         None.
     """
 
-    def __init__(self, code: str, message: str, status_code: int = 422) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.status_code = status_code
+    def __init__(
+        self,
+        code: ErrorCode,
+        message: str | None = None,
+        statusCode: int | None = None,
+    ) -> None:
+        try:
+            definition = ERROR_DEFINITIONS[code]
+            resolvedMessage = message or definition.message
+            resolvedStatusCode = statusCode or definition.statusCode
+            super().__init__(resolvedMessage)
+            self.code = code
+            self.message = resolvedMessage
+            self.statusCode = resolvedStatusCode
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in __init__: {e}")
+            raise
 
 
 class InputValidationError(TrafficCounterError):
@@ -76,7 +124,7 @@ class UploadValidationError(InputValidationError):
     Args:
         code: Stable machine-readable error code.
         message: Safe user-facing error message.
-        status_code: HTTP status used at the API boundary.
+        statusCode: HTTP status used at the API boundary.
 
     Returns:
         An upload validation exception.
@@ -85,18 +133,27 @@ class UploadValidationError(InputValidationError):
         None.
     """
 
-    def __init__(self, code: str, message: str, status_code: int) -> None:
-        super().__init__(code, message, status_code)
+    def __init__(
+        self,
+        code: ErrorCode,
+        message: str,
+        statusCode: int | None = None,
+    ) -> None:
+        try:
+            super().__init__(code, message, statusCode)
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in __init__: {e}")
+            raise
 
 
 class RateLimitExceededError(TrafficCounterError):
     """Represent an exceeded API rate limit."""
 
-    def __init__(self, retry_after: int) -> None:
+    def __init__(self, retryAfter: int) -> None:
         """Create a rate-limit exception.
 
         Args:
-            retry_after: Seconds until the current window resets.
+            retryAfter: Seconds until the current window resets.
 
         Returns:
             A rate-limit exception.
@@ -104,8 +161,12 @@ class RateLimitExceededError(TrafficCounterError):
         Raises:
             None.
         """
-        super().__init__(ErrorCode.RATE_LIMIT_EXCEEDED, "Too many requests.", 429)
-        self.retry_after = retry_after
+        try:
+            super().__init__(ErrorCode.RATE_LIMIT_EXCEEDED)
+            self.retryAfter = retryAfter
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in __init__: {e}")
+            raise
 
 
 class AuthenticationError(TrafficCounterError):
@@ -123,11 +184,7 @@ class AuthenticationError(TrafficCounterError):
         Raises:
             None.
         """
-        super().__init__(
-            ErrorCode.AUTHENTICATION_FAILED,
-            "A valid API key is required.",
-            401,
-        )
+        super().__init__(ErrorCode.AUTHENTICATION_FAILED)
 
 
 class KafkaProducerInitializationError(TrafficCounterError):
@@ -145,8 +202,7 @@ class KafkaProducerInitializationError(TrafficCounterError):
         Raises:
             None.
         """
-        code = ErrorCode.KAFKA_PRODUCER_INITIALIZATION
-        super().__init__(code, STANDARD_ERROR_MESSAGES[code], 500)
+        super().__init__(ErrorCode.KAFKA_PRODUCER_INITIALIZATION)
 
 
 class KafkaConsumerInitializationError(TrafficCounterError):
@@ -164,8 +220,7 @@ class KafkaConsumerInitializationError(TrafficCounterError):
         Raises:
             None.
         """
-        code = ErrorCode.KAFKA_CONSUMER_INITIALIZATION
-        super().__init__(code, STANDARD_ERROR_MESSAGES[code], 500)
+        super().__init__(ErrorCode.KAFKA_CONSUMER_INITIALIZATION)
 
 
 class KafkaConsumerActionError(TrafficCounterError):
@@ -183,8 +238,7 @@ class KafkaConsumerActionError(TrafficCounterError):
         Raises:
             None.
         """
-        code = ErrorCode.KAFKA_CONSUMER_ACTION
-        super().__init__(code, STANDARD_ERROR_MESSAGES[code], 500)
+        super().__init__(ErrorCode.KAFKA_CONSUMER_ACTION)
 
 
 class InvalidJsonRequestError(TrafficCounterError):
@@ -202,8 +256,7 @@ class InvalidJsonRequestError(TrafficCounterError):
         Raises:
             None.
         """
-        code = ErrorCode.INVALID_JSON_REQUEST_BODY
-        super().__init__(code, STANDARD_ERROR_MESSAGES[code], 400)
+        super().__init__(ErrorCode.INVALID_JSON_REQUEST_BODY)
 
 
 class InvalidRequestBodyError(TrafficCounterError):
@@ -221,8 +274,7 @@ class InvalidRequestBodyError(TrafficCounterError):
         Raises:
             None.
         """
-        code = ErrorCode.INVALID_REQUEST_BODY
-        super().__init__(code, STANDARD_ERROR_MESSAGES[code], 422)
+        super().__init__(ErrorCode.INVALID_REQUEST_BODY)
 
 
 class DatabasePersistenceError(TrafficCounterError):
@@ -240,8 +292,4 @@ class DatabasePersistenceError(TrafficCounterError):
         Raises:
             None.
         """
-        super().__init__(
-            ErrorCode.DATABASE_WRITE_ERROR,
-            "The analysis result could not be stored.",
-            503,
-        )
+        super().__init__(ErrorCode.DATABASE_WRITE_ERROR)

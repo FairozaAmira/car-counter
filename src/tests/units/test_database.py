@@ -9,17 +9,29 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.config import Settings
 from src.db.models import AnalysisKind, TrafficAnalysisResult
-from src.db.repositories import SqlAlchemyAnalysisResultRepository
+from src.db.repositories import AnalysisResultRepository, SqlAlchemyAnalysisResultRepository
 from src.db.session import (
-    check_database_connection,
-    create_database_engine,
-    create_session_factory,
-    get_db_session,
+    checkDatabaseConnection,
+    createDatabaseEngine,
+    createSessionFactory,
+    getDbSession,
 )
-from src.routers.traffic import get_analysis_repository
+from src.routers.traffic import getAnalysisRepository
 from src.utils.errors import DatabasePersistenceError
 
 DATABASE_URL = "postgresql+asyncpg://application:application@localhost:5432/application_test"
+
+
+async def test_repository_protocol_save_is_a_declaration() -> None:
+    """Cover the structural protocol declaration without persistence."""
+    await AnalysisResultRepository.save(  # type: ignore[arg-type]
+        object(),
+        resultId=uuid4(),
+        analysisKind=AnalysisKind.SINGLE,
+        createdAt=datetime.now(UTC),
+        timeTaken=0.0,
+        responsePayload={},
+    )
 
 
 class AsyncContext:
@@ -66,24 +78,42 @@ async def test_repository_persists_complete_result() -> None:
     """Verify model mapping and transaction use."""
     session = FakeSession()
     repository = SqlAlchemyAnalysisResultRepository(session)  # type: ignore[arg-type]
-    result_id = uuid4()
-    created_at = datetime.now(UTC)
-    payload = {"id": str(result_id), "total_cars": 6}
+    resultId = uuid4()
+    createdAt = datetime.now(UTC)
+    payload = {
+        "id": str(resultId),
+        "totalCars": 6,
+        "dailyTotals": [{"date": "01-12-2021", "carCount": 6}],
+        "topHalfHours": [{"timestamp": "01-12-2021 05:00:00", "carCount": 6}],
+        "leastCarsPeriod": {
+            "start": "01-12-2021 05:00:00",
+            "end": "01-12-2021 06:30:00",
+            "totalCars": 6,
+            "records": [{"timestamp": "01-12-2021 05:00:00", "carCount": 6}],
+        },
+    }
 
     await repository.save(
-        result_id=result_id,
-        analysis_kind=AnalysisKind.SINGLE,
-        created_at=created_at,
-        time_taken=4.25,
-        response_payload=payload,
+        resultId=resultId,
+        analysisKind=AnalysisKind.SINGLE,
+        createdAt=createdAt,
+        timeTaken=4.25,
+        responsePayload=payload,
     )
 
     assert session.added is not None
-    assert session.added.id == result_id
-    assert session.added.analysis_kind == "single"
-    assert session.added.created_at == created_at
-    assert str(session.added.time_taken) == "4.25"
-    assert session.added.response_payload == payload
+    assert session.added.id == resultId
+    assert session.added.analysisKind == "single"
+    assert session.added.createdAt == createdAt
+    assert str(session.added.timeTaken) == "4.25"
+    assert session.added.totalCars == 6
+    assert session.added.dailyTotals == payload["dailyTotals"]
+    assert session.added.topHalfHours == payload["topHalfHours"]
+    assert session.added.leastCarsPeriodStart == "01-12-2021 05:00:00"
+    assert session.added.leastCarsPeriodEnd == "01-12-2021 06:30:00"
+    assert session.added.leastCarsPeriodTotalCars == 6
+    assert session.added.leastCarsPeriodRecords == payload["leastCarsPeriod"]["records"]
+    assert session.added.items is None
     assert not session.rolled_back
 
 
@@ -96,11 +126,11 @@ async def test_repository_rolls_back_and_maps_database_failure(
 
     with pytest.raises(DatabasePersistenceError) as error:
         await repository.save(
-            result_id=uuid4(),
-            analysis_kind=AnalysisKind.BATCH,
-            created_at=datetime.now(UTC),
-            time_taken=1.0,
-            response_payload={"items": []},
+            resultId=uuid4(),
+            analysisKind=AnalysisKind.BATCH,
+            createdAt=datetime.now(UTC),
+            timeTaken=1.0,
+            responsePayload={"items": []},
         )
 
     assert error.value.__cause__ is not None
@@ -121,27 +151,27 @@ def test_create_database_engine_uses_configured_pool(
         return expected_engine
 
     monkeypatch.setattr("src.db.session.create_async_engine", fake_create_engine)
-    settings = Settings(database_url=DATABASE_URL)
+    settings = Settings(databaseUrl=DATABASE_URL)
 
-    engine = create_database_engine(settings)
+    engine = createDatabaseEngine(settings)
 
     assert engine is expected_engine
     assert captured["url"] == DATABASE_URL
-    assert captured["pool_size"] == settings.database_pool_size
-    assert captured["max_overflow"] == settings.database_max_overflow
-    assert captured["pool_timeout"] == settings.database_pool_timeout_seconds
-    assert captured["pool_recycle"] == settings.database_pool_recycle_seconds
+    assert captured["pool_size"] == settings.databasePoolSize
+    assert captured["max_overflow"] == settings.databaseMaxOverflow
+    assert captured["pool_timeout"] == settings.databasePoolTimeoutSeconds
+    assert captured["pool_recycle"] == settings.databasePoolRecycleSeconds
     assert captured["pool_pre_ping"] is True
     assert captured["connect_args"] == {
-        "timeout": settings.database_connect_timeout_seconds,
-        "command_timeout": settings.database_command_timeout_seconds,
+        "timeout": settings.databaseConnectTimeoutSeconds,
+        "command_timeout": settings.databaseCommandTimeoutSeconds,
     }
 
 
 def test_create_database_engine_requires_url() -> None:
     """Verify API startup fails fast without database configuration."""
     with pytest.raises(RuntimeError, match="DATABASE_URL"):
-        create_database_engine(Settings(database_url=None))
+        createDatabaseEngine(Settings(databaseUrl=None))
 
 
 def test_create_session_factory(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -157,7 +187,7 @@ def test_create_session_factory(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("src.db.session.async_sessionmaker", fake_sessionmaker)
     engine = object()
 
-    factory = create_session_factory(engine)  # type: ignore[arg-type]
+    factory = createSessionFactory(engine)  # type: ignore[arg-type]
 
     assert factory is expected_factory
     assert captured == {"engine": engine, "expire_on_commit": False}
@@ -178,7 +208,7 @@ async def test_check_database_connection_executes_probe() -> None:
     connection = Connection()
     engine = SimpleNamespace(connect=lambda: AsyncContext(connection))
 
-    await check_database_connection(engine)  # type: ignore[arg-type]
+    await checkDatabaseConnection(engine)  # type: ignore[arg-type]
 
     assert connection.statement == "SELECT 1"
 
@@ -188,10 +218,10 @@ async def test_get_db_session_yields_and_closes_request_session() -> None:
     session = object()
     request = SimpleNamespace(
         app=SimpleNamespace(
-            state=SimpleNamespace(db_session_factory=lambda: AsyncContext(session)),
+            state=SimpleNamespace(dbSessionFactory=lambda: AsyncContext(session)),
         ),
     )
-    dependency = get_db_session(request)  # type: ignore[arg-type]
+    dependency = getDbSession(request)  # type: ignore[arg-type]
 
     assert await anext(dependency) is session
     await dependency.aclose()
@@ -200,7 +230,7 @@ async def test_get_db_session_yields_and_closes_request_session() -> None:
 async def test_get_db_session_requires_initialized_factory() -> None:
     """Verify requests cannot proceed before database startup."""
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
-    dependency = get_db_session(request)  # type: ignore[arg-type]
+    dependency = getDbSession(request)  # type: ignore[arg-type]
 
     with pytest.raises(RuntimeError, match="session factory"):
         await anext(dependency)
@@ -210,6 +240,6 @@ def test_router_builds_sqlalchemy_repository() -> None:
     """Verify the route dependency preserves repository separation."""
     session = object()
 
-    repository = get_analysis_repository(session)  # type: ignore[arg-type]
+    repository = getAnalysisRepository(session)  # type: ignore[arg-type]
 
     assert isinstance(repository, SqlAlchemyAnalysisResultRepository)
