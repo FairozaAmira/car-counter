@@ -21,38 +21,38 @@ pytestmark = [
 
 
 async def test_real_broker_processes_multiple_files() -> None:
-    settings = Settings(kafka_consumer_group=f"test-workers-{uuid4()}")
+    settings = Settings(kafkaConsumerGroup=f"test-workers-{uuid4()}")
     result_consumer = AIOKafkaConsumer(
-        settings.kafka_result_topic,
-        bootstrap_servers=settings.kafka_bootstrap_servers,
+        settings.kafkaResultTopic,
+        bootstrap_servers=settings.kafkaBootstrapServers,
         group_id=f"test-results-{uuid4()}",
         auto_offset_reset="latest",
     )
     worker = KafkaConsumerService(settings)
     producer = KafkaProducerService(settings)
-    stop_event = asyncio.Event()
+    stopEvent = asyncio.Event()
     worker_task: asyncio.Task[None] | None = None
 
     await result_consumer.start()
     await worker.start()
     await producer.start()
     try:
-        worker_task = asyncio.create_task(worker.run(stop_event))
+        worker_task = asyncio.create_task(worker.run(stopEvent))
         fixture = Path(__file__).parents[1] / "data" / "sample_traffic.txt"
-        published = await producer.publish_files([fixture, fixture], concurrency=2)
-        expected_ids = {str(item.request_id) for item in published}
+        published = await producer.publishFiles([fixture, fixture], concurrency=2)
+        expected_ids = {str(item.requestId) for item in published}
 
         received: set[str] = set()
         async with asyncio.timeout(20):
             while received != expected_ids:
                 message = await result_consumer.getone()
                 event = KafkaAnalysisResult.model_validate_json(message.value)
-                if str(event.request_id) in expected_ids:
-                    received.add(str(event.request_id))
+                if str(event.requestId) in expected_ids:
+                    received.add(str(event.requestId))
 
         assert received == expected_ids
     finally:
-        stop_event.set()
+        stopEvent.set()
         if worker_task is not None:
             await worker_task
         await producer.stop()

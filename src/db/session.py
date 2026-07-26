@@ -16,7 +16,7 @@ from src.config import Settings
 AsyncSessionFactory = async_sessionmaker[AsyncSession]
 
 
-def create_database_engine(settings: Settings) -> AsyncEngine:
+def createDatabaseEngine(settings: Settings) -> AsyncEngine:
     """Create the process-local PostgreSQL connection pool.
 
     Args:
@@ -28,23 +28,27 @@ def create_database_engine(settings: Settings) -> AsyncEngine:
     Raises:
         RuntimeError: If ``DATABASE_URL`` is not configured.
     """
-    if settings.database_url is None:
-        raise RuntimeError("DATABASE_URL is required to start the API.")
-    return create_async_engine(
-        settings.database_url,
-        pool_size=settings.database_pool_size,
-        max_overflow=settings.database_max_overflow,
-        pool_timeout=settings.database_pool_timeout_seconds,
-        pool_recycle=settings.database_pool_recycle_seconds,
-        pool_pre_ping=True,
-        connect_args={
-            "timeout": settings.database_connect_timeout_seconds,
-            "command_timeout": settings.database_command_timeout_seconds,
-        },
-    )
+    try:
+        if settings.databaseUrl is None:
+            raise RuntimeError("DATABASE_URL is required to start the API.")
+        return create_async_engine(
+            settings.databaseUrl,
+            pool_size=settings.databasePoolSize,
+            max_overflow=settings.databaseMaxOverflow,
+            pool_timeout=settings.databasePoolTimeoutSeconds,
+            pool_recycle=settings.databasePoolRecycleSeconds,
+            pool_pre_ping=True,
+            connect_args={
+                "timeout": settings.databaseConnectTimeoutSeconds,
+                "command_timeout": settings.databaseCommandTimeoutSeconds,
+            },
+        )
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in createDatabaseEngine: {e}")
+        raise
 
 
-def create_session_factory(engine: AsyncEngine) -> AsyncSessionFactory:
+def createSessionFactory(engine: AsyncEngine) -> AsyncSessionFactory:
     """Create request-scoped async sessions.
 
     Args:
@@ -56,10 +60,14 @@ def create_session_factory(engine: AsyncEngine) -> AsyncSessionFactory:
     Raises:
         None.
     """
-    return async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        return async_sessionmaker(engine, expire_on_commit=False)
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in createSessionFactory: {e}")
+        raise
 
 
-async def check_database_connection(engine: AsyncEngine) -> None:
+async def checkDatabaseConnection(engine: AsyncEngine) -> None:
     """Verify that PostgreSQL accepts a simple query.
 
     Args:
@@ -71,11 +79,15 @@ async def check_database_connection(engine: AsyncEngine) -> None:
     Raises:
         SQLAlchemyError: If a connection or query fails.
     """
-    async with engine.connect() as connection:
-        await connection.execute(text("SELECT 1"))
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in checkDatabaseConnection: {e}")
+        raise
 
 
-async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
+async def getDbSession(request: Request) -> AsyncIterator[AsyncSession]:
     """Yield one request-scoped database session.
 
     Args:
@@ -87,12 +99,16 @@ async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
     Raises:
         RuntimeError: If application database startup did not complete.
     """
-    factory: AsyncSessionFactory | None = getattr(
-        request.app.state,
-        "db_session_factory",
-        None,
-    )
-    if factory is None:
-        raise RuntimeError("Database session factory is unavailable.")
-    async with factory() as session:
-        yield session
+    try:
+        factory: AsyncSessionFactory | None = getattr(
+            request.app.state,
+            "dbSessionFactory",
+            None,
+        )
+        if factory is None:
+            raise RuntimeError("Database session factory is unavailable.")
+        async with factory() as session:
+            yield session
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in getDbSession: {e}")
+        raise

@@ -45,11 +45,11 @@ class RecordingProducer:
 async def test_producer_lifecycle_is_idempotent_and_requires_start() -> None:
     """Verify duplicate lifecycle calls and the pre-start guard."""
     producer = RecordingProducer()
-    service = KafkaProducerService(Settings(), producer_factory=lambda **_: producer)
-    records = [TrafficRecord(timestamp="2021-01-01T00:00:00", car_count=1)]
+    service = KafkaProducerService(Settings(), producerFactory=lambda **_: producer)
+    records = [TrafficRecord(timestamp="2021-01-01T00:00:00", carCount=1)]
 
     with pytest.raises(RuntimeError, match="has not been started"):
-        await service.publish_records("traffic.txt", records)
+        await service.publishRecords("traffic.txt", records)
 
     await service.start()
     await service.start()
@@ -62,7 +62,7 @@ async def test_producer_lifecycle_is_idempotent_and_requires_start() -> None:
 async def test_producer_start_uses_standard_initialization_error() -> None:
     """Verify producer startup failures use the standard error catalog."""
     producer = RecordingProducer(fail_start=True)
-    service = KafkaProducerService(Settings(), producer_factory=lambda **_: producer)
+    service = KafkaProducerService(Settings(), producerFactory=lambda **_: producer)
 
     with pytest.raises(KafkaProducerInitializationError) as captured:
         await service.start()
@@ -74,26 +74,26 @@ async def test_producer_publishes_result_event() -> None:
     """Verify result events use the configured result topic."""
     producer = RecordingProducer()
     settings = Settings()
-    service = KafkaProducerService(settings, producer_factory=lambda **_: producer)
+    service = KafkaProducerService(settings, producerFactory=lambda **_: producer)
     event = KafkaAnalysisResult(
-        request_id=uuid4(),
+        requestId=uuid4(),
         filename="traffic.txt",
         status=ProcessingStatus.FAILED,
-        error=ErrorDetail(code="invalid_event", message="Invalid event."),
+        error=ErrorDetail(code=ErrorCode.KAFKA_PUBLISH_ERROR, message="Invalid event."),
     )
 
     await service.start()
-    await service.publish_result(event)
+    await service.publishResult(event)
     await service.stop()
 
-    assert producer.sent[0][0] == settings.kafka_result_topic
+    assert producer.sent[0][0] == settings.kafkaResultTopic
 
 
 @pytest.mark.parametrize(
     ("filename", "content", "expected_code"),
     [
-        ("invalid.txt", "not traffic data", "invalid_record"),
-        ("invalid-utf8.txt", b"\xff", "file_read_error"),
+        ("invalid.txt", "not traffic data", "ERR00032"),
+        ("invalid-utf8.txt", b"\xff", "ERR00046"),
     ],
 )
 async def test_publish_file_returns_safe_input_failures(
@@ -110,7 +110,7 @@ async def test_publish_file_returns_safe_input_failures(
         path.write_text(content, encoding="utf-8")
     service = KafkaProducerService(Settings())
 
-    result = await service.publish_file(path)
+    result = await service.publishFile(path)
 
     assert result.status is ProcessingStatus.FAILED
     assert result.error is not None
@@ -121,10 +121,10 @@ async def test_publish_file_returns_missing_file_failure(tmp_path: Path) -> None
     """Verify missing files return a safe read failure."""
     service = KafkaProducerService(Settings())
 
-    result = await service.publish_file(tmp_path / "missing.txt")
+    result = await service.publishFile(tmp_path / "missing.txt")
 
     assert result.error is not None
-    assert result.error.code == "file_read_error"
+    assert result.error.code == "ERR00046"
 
 
 async def test_publish_file_returns_broker_failure(tmp_path: Path) -> None:
@@ -132,14 +132,14 @@ async def test_publish_file_returns_broker_failure(tmp_path: Path) -> None:
     path = tmp_path / "traffic.txt"
     path.write_text(VALID_TRAFFIC, encoding="utf-8")
     producer = RecordingProducer(fail_publish=True)
-    service = KafkaProducerService(Settings(), producer_factory=lambda **_: producer)
+    service = KafkaProducerService(Settings(), producerFactory=lambda **_: producer)
 
     await service.start()
-    result = await service.publish_file(path)
+    result = await service.publishFile(path)
     await service.stop()
 
     assert result.error is not None
-    assert result.error.code == "kafka_publish_error"
+    assert result.error.code == "ERR00013"
 
 
 async def test_publish_files_rejects_non_positive_concurrency() -> None:
@@ -147,4 +147,4 @@ async def test_publish_files_rejects_non_positive_concurrency() -> None:
     service = KafkaProducerService(Settings())
 
     with pytest.raises(ValueError, match="positive"):
-        await service.publish_files([], concurrency=0)
+        await service.publishFiles([], concurrency=0)

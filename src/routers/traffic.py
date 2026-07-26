@@ -3,19 +3,19 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config import Settings, get_settings
+from src.config import Settings, getSettings
 from src.controllers.traffic import TrafficController
 from src.db.repositories import AnalysisResultRepository, SqlAlchemyAnalysisResultRepository
-from src.db.session import get_db_session
-from src.dependencies.security import enforce_upload_rate_limit
+from src.db.session import getDbSession
+from src.dependencies.security import enforceUploadRateLimit
 from src.schemas.traffic import AnalysisResponse, BatchAnalysisResponse
 from src.services.traffic import TrafficAnalysisService
 
 router = APIRouter(prefix="/api/v1/traffic", tags=["traffic"])
 
 
-def get_analysis_repository(
-    session: Annotated[AsyncSession, Depends(get_db_session)],
+def getAnalysisRepository(
+    session: Annotated[AsyncSession, Depends(getDbSession)],
 ) -> AnalysisResultRepository:
     """Build a request-scoped analysis result repository.
 
@@ -28,12 +28,16 @@ def get_analysis_repository(
     Raises:
         None.
     """
-    return SqlAlchemyAnalysisResultRepository(session)
+    try:
+        return SqlAlchemyAnalysisResultRepository(session)
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in getAnalysisRepository: {e}")
+        raise
 
 
-def get_traffic_controller(
-    settings: Annotated[Settings, Depends(get_settings)],
-    repository: Annotated[AnalysisResultRepository, Depends(get_analysis_repository)],
+def getTrafficController(
+    settings: Annotated[Settings, Depends(getSettings)],
+    repository: Annotated[AnalysisResultRepository, Depends(getAnalysisRepository)],
 ) -> TrafficController:
     """Build a request-scoped traffic controller.
 
@@ -47,12 +51,16 @@ def get_traffic_controller(
     Raises:
         ValueError: If service or concurrency settings are invalid.
     """
-    service = TrafficAnalysisService(
-        upload_max_bytes=settings.upload_max_bytes,
-        allowed_extensions=settings.upload_allowed_extensions,
-        allowed_mime_types=settings.upload_allowed_mime_types,
-    )
-    return TrafficController(service, repository, settings.batch_concurrency)
+    try:
+        service = TrafficAnalysisService(
+            uploadMaxBytes=settings.uploadMaxBytes,
+            allowedExtensions=settings.uploadAllowedExtensions,
+            allowedMimeTypes=settings.uploadAllowedMimeTypes,
+        )
+        return TrafficController(service, repository, settings.batchConcurrency)
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in getTrafficController: {e}")
+        raise
 
 
 @router.post(
@@ -67,11 +75,11 @@ def get_traffic_controller(
         422: {"description": "Invalid traffic data"},
         429: {"description": "Rate limit exceeded"},
     },
-    dependencies=[Depends(enforce_upload_rate_limit)],
+    dependencies=[Depends(enforceUploadRateLimit)],
 )
-async def analyze_file(
+async def analyzeFile(
     file: Annotated[UploadFile, File(description="Traffic counter text file")],
-    controller: Annotated[TrafficController, Depends(get_traffic_controller)],
+    controller: Annotated[TrafficController, Depends(getTrafficController)],
 ) -> AnalysisResponse:
     """Analyze one uploaded traffic file.
 
@@ -85,7 +93,11 @@ async def analyze_file(
     Raises:
         TrafficCounterError: If validation or analysis fails.
     """
-    return await controller.analyze(file)
+    try:
+        return await controller.analyze(file)
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in analyzeFile: {e}")
+        raise
 
 
 @router.post(
@@ -97,9 +109,9 @@ async def analyze_file(
         401: {"description": "Invalid API key"},
         429: {"description": "Rate limit exceeded"},
     },
-    dependencies=[Depends(enforce_upload_rate_limit)],
+    dependencies=[Depends(enforceUploadRateLimit)],
 )
-async def analyze_files(
+async def analyzeFiles(
     files: Annotated[
         list[UploadFile],
         File(
@@ -107,7 +119,7 @@ async def analyze_files(
             json_schema_extra={"items": {"type": "string", "format": "binary"}},
         ),
     ],
-    controller: Annotated[TrafficController, Depends(get_traffic_controller)],
+    controller: Annotated[TrafficController, Depends(getTrafficController)],
 ) -> BatchAnalysisResponse:
     """Analyze multiple uploaded traffic files.
 
@@ -121,4 +133,8 @@ async def analyze_files(
     Raises:
         TrafficCounterError: If request-level validation fails.
     """
-    return await controller.analyze_batch(files)
+    try:
+        return await controller.analyzeBatch(files)
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in analyzeFiles: {e}")
+        raise

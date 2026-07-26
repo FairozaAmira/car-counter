@@ -8,8 +8,8 @@ from redis.exceptions import ConnectionError
 
 from src.config import Settings
 from src.db.models import AnalysisKind
-from src.main import create_app
-from src.routers.traffic import get_analysis_repository
+from src.main import createApp
+from src.routers.traffic import getAnalysisRepository
 from src.services.rate_limit import RedisRateLimiter
 
 VALID = """\
@@ -32,14 +32,14 @@ class InMemoryAnalysisRepository:
 
 
 repository = InMemoryAnalysisRepository()
-app = create_app(Settings(database_url=None))
-app.dependency_overrides[get_analysis_repository] = lambda: repository
+app = createApp(Settings(databaseUrl=None))
+app.dependency_overrides[getAnalysisRepository] = lambda: repository
 
 
 def configure_repository(application: Any) -> InMemoryAnalysisRepository:
     """Configure isolated API persistence for a test application."""
     test_repository = InMemoryAnalysisRepository()
-    application.dependency_overrides[get_analysis_repository] = lambda: test_repository
+    application.dependency_overrides[getAnalysisRepository] = lambda: test_repository
     return test_repository
 
 
@@ -47,10 +47,10 @@ def assert_post_response_metadata(payload: dict[str, object]) -> None:
     """Verify common POST response identifiers and timing metadata."""
     assert UUID(str(payload["id"])).version == 4
     datetime.strptime(str(payload["createdAt"]), "%d-%m-%Y")
-    time_taken = payload["timeTaken"]
-    assert isinstance(time_taken, float)
-    assert time_taken >= 0
-    assert time_taken == round(time_taken, 2)
+    timeTaken = payload["timeTaken"]
+    assert isinstance(timeTaken, float)
+    assert timeTaken >= 0
+    assert timeTaken == round(timeTaken, 2)
 
 
 async def test_single_file_endpoint() -> None:
@@ -63,17 +63,17 @@ async def test_single_file_endpoint() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total_cars"] == 6
-    assert payload["daily_totals"][0]["date"] == "01-12-2021"
-    assert payload["top_half_hours"][0]["timestamp"] == "01-12-2021 06:00:00"
-    assert payload["least_cars_period"]["start"] == "01-12-2021 05:00:00"
-    assert payload["least_cars_period"]["end"] == "01-12-2021 06:30:00"
+    assert payload["totalCars"] == 6
+    assert payload["dailyTotals"][0]["date"] == "01-12-2021"
+    assert payload["topHalfHours"][0]["timestamp"] == "01-12-2021 06:00:00"
+    assert payload["leastCarsPeriod"]["start"] == "01-12-2021 05:00:00"
+    assert payload["leastCarsPeriod"]["end"] == "01-12-2021 06:30:00"
     assert_post_response_metadata(payload)
     assert len(repository.records) == record_count + 1
     stored = repository.records[-1]
-    assert stored["result_id"] == UUID(payload["id"])
-    assert stored["analysis_kind"] is AnalysisKind.SINGLE
-    assert stored["response_payload"] == payload
+    assert stored["resultId"] == UUID(payload["id"])
+    assert stored["analysisKind"] is AnalysisKind.SINGLE
+    assert stored["responsePayload"] == payload
 
 
 async def test_single_file_endpoint_returns_domain_error() -> None:
@@ -84,7 +84,7 @@ async def test_single_file_endpoint_returns_domain_error() -> None:
         )
 
     assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "invalid_timestamp"
+    assert response.json()["detail"]["code"] == "ERR00033"
 
 
 async def test_missing_upload_uses_standard_request_body_error() -> None:
@@ -113,13 +113,11 @@ async def test_batch_endpoint_returns_partial_results() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert [item["status"] for item in payload["items"]] == ["completed", "failed"]
-    assert payload["items"][0]["result"]["top_half_hours"][0]["timestamp"] == (
-        "01-12-2021 06:00:00"
-    )
+    assert payload["items"][0]["result"]["topHalfHours"][0]["timestamp"] == ("01-12-2021 06:00:00")
     assert_post_response_metadata(payload)
     assert len(repository.records) == record_count + 1
-    assert repository.records[-1]["analysis_kind"] is AnalysisKind.BATCH
-    assert repository.records[-1]["response_payload"] == payload
+    assert repository.records[-1]["analysisKind"] is AnalysisKind.BATCH
+    assert repository.records[-1]["responsePayload"] == payload
 
 
 def test_batch_openapi_schema_declares_binary_file_items() -> None:
@@ -147,7 +145,7 @@ async def test_health_endpoints() -> None:
 
 
 async def test_api_key_authentication() -> None:
-    protected_app = create_app(Settings(api_key="test-key", database_url=None))
+    protected_app = createApp(Settings(apiKey="test-key", databaseUrl=None))
     configure_repository(protected_app)
     async with AsyncClient(
         transport=ASGITransport(app=protected_app),
@@ -177,26 +175,26 @@ async def test_readiness_respects_rate_limit_failure_policy() -> None:
             """Raise a deterministic connection error."""
             raise ConnectionError("Redis unavailable")
 
-    fail_open_app = create_app(
+    fail_open_app = createApp(
         Settings(
-            rate_limit_enabled=True,
-            rate_limit_redis_url="redis://test",
-            rate_limit_fail_open=True,
-            database_url=None,
+            rateLimitEnabled=True,
+            rateLimitRedisUrl="redis://test",
+            rateLimitFailOpen=True,
+            databaseUrl=None,
         ),
     )
     configure_repository(fail_open_app)
-    fail_open_app.state.redis_client = UnavailableRedis()
-    fail_closed_app = create_app(
+    fail_open_app.state.redisClient = UnavailableRedis()
+    fail_closed_app = createApp(
         Settings(
-            rate_limit_enabled=True,
-            rate_limit_redis_url="redis://test",
-            rate_limit_fail_open=False,
-            database_url=None,
+            rateLimitEnabled=True,
+            rateLimitRedisUrl="redis://test",
+            rateLimitFailOpen=False,
+            databaseUrl=None,
         ),
     )
     configure_repository(fail_closed_app)
-    fail_closed_app.state.redis_client = UnavailableRedis()
+    fail_closed_app.state.redisClient = UnavailableRedis()
 
     async with AsyncClient(
         transport=ASGITransport(app=fail_open_app),
@@ -210,16 +208,16 @@ async def test_readiness_respects_rate_limit_failure_policy() -> None:
         unavailable = await client.get("/health/ready")
 
     assert degraded.status_code == 200
-    assert degraded.json()["rate_limit"] == "degraded"
+    assert degraded.json()["rateLimit"] == "degraded"
     assert unavailable.status_code == 503
 
 
 def test_create_app_configures_explicit_cors() -> None:
     """Verify configured origins install the CORS middleware."""
-    cors_app = create_app(
-        Settings(cors_origins=("https://client.example",), database_url=None),
+    cors_app = createApp(
+        Settings(corsOrigins=("https://client.example",), databaseUrl=None),
     )
-    no_cors_app = create_app(Settings(cors_origins=(), database_url=None))
+    no_cors_app = createApp(Settings(corsOrigins=(), databaseUrl=None))
 
     assert any(middleware.cls is CORSMiddleware for middleware in cors_app.user_middleware)
     assert all(middleware.cls is not CORSMiddleware for middleware in no_cors_app.user_middleware)
@@ -241,16 +239,16 @@ async def test_upload_rate_limit_returns_retry_after_header() -> None:
         async def expire(self, _key: str, _seconds: int) -> bool:
             return True
 
-    limited_app = create_app(
+    limited_app = createApp(
         Settings(
-            rate_limit_enabled=True,
-            rate_limit_redis_url="redis://test",
-            rate_limit_upload_requests=1,
-            database_url=None,
+            rateLimitEnabled=True,
+            rateLimitRedisUrl="redis://test",
+            rateLimitUploadRequests=1,
+            databaseUrl=None,
         ),
     )
     configure_repository(limited_app)
-    limited_app.state.rate_limiter = RedisRateLimiter(Backend(), 60, False)
+    limited_app.state.rateLimiter = RedisRateLimiter(Backend(), 60, False)
     transport = ASGITransport(app=limited_app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:

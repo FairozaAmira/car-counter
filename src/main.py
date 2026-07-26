@@ -11,14 +11,14 @@ from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from src.config import Settings, get_settings
+from src.config import Settings, getSettings
 from src.db.session import (
-    check_database_connection,
-    create_database_engine,
-    create_session_factory,
+    checkDatabaseConnection,
+    createDatabaseEngine,
+    createSessionFactory,
 )
 from src.middleware.request_context import RequestContextMiddleware
-from src.routers.traffic import router as traffic_router
+from src.routers.traffic import router as trafficRouter
 from src.schemas.traffic import ErrorDetail
 from src.services.rate_limit import RedisRateLimiter
 from src.utils.errors import (
@@ -43,40 +43,44 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     Raises:
         RedisError: If the rate-limit backend is required and unavailable.
     """
-    settings: Settings = application.state.settings
-    database_engine = create_database_engine(settings)
-    redis_client: Redis | None = None
     try:
-        await check_database_connection(database_engine)
-        application.state.database_engine = database_engine
-        application.state.db_session_factory = create_session_factory(database_engine)
-        if settings.rate_limit_enabled:
-            assert settings.rate_limit_redis_url is not None
-            redis_client = Redis.from_url(settings.rate_limit_redis_url, decode_responses=True)
-            try:
-                await redis_client.ping()
-            except RedisError:
-                if not settings.rate_limit_fail_open:
-                    await redis_client.aclose()
-                    redis_client = None
-                    raise
-                logger.exception("Rate-limit backend unavailable during startup")
-            application.state.redis_client = redis_client
-            application.state.rate_limiter = RedisRateLimiter(
-                redis_client,
-                settings.rate_limit_window_seconds,
-                settings.rate_limit_fail_open,
-            )
-        logger.info("Application started", extra={"environment": settings.environment})
-        yield
-    finally:
-        if redis_client is not None:
-            await redis_client.aclose()
-        await database_engine.dispose()
-        logger.info("Application stopped", extra={"environment": settings.environment})
+        settings: Settings = application.state.settings
+        databaseEngine = createDatabaseEngine(settings)
+        redisClient: Redis | None = None
+        try:
+            await checkDatabaseConnection(databaseEngine)
+            application.state.databaseEngine = databaseEngine
+            application.state.dbSessionFactory = createSessionFactory(databaseEngine)
+            if settings.rateLimitEnabled:
+                assert settings.rateLimitRedisUrl is not None
+                redisClient = Redis.from_url(settings.rateLimitRedisUrl, decode_responses=True)
+                try:
+                    await redisClient.ping()
+                except RedisError:
+                    if not settings.rateLimitFailOpen:
+                        await redisClient.aclose()
+                        redisClient = None
+                        raise
+                    logger.exception("Rate-limit backend unavailable during startup")
+                application.state.redisClient = redisClient
+                application.state.rateLimiter = RedisRateLimiter(
+                    redisClient,
+                    settings.rateLimitWindowSeconds,
+                    settings.rateLimitFailOpen,
+                )
+            logger.info("Application started", extra={"environment": settings.environment})
+            yield
+        finally:
+            if redisClient is not None:
+                await redisClient.aclose()
+            await databaseEngine.dispose()
+            logger.info("Application stopped", extra={"environment": settings.environment})
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in lifespan: {e}")
+        raise
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def createApp(settings: Settings | None = None) -> FastAPI:
     """Create and configure the FastAPI application.
 
     Args:
@@ -88,16 +92,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     Raises:
         ValueError: If the supplied settings are inconsistent.
     """
-    runtime_settings = settings or get_settings()
+    runtimeSettings = settings or getSettings()
     application = FastAPI(
-        title=runtime_settings.app_name,
-        version=runtime_settings.app_version,
+        title=runtimeSettings.appName,
+        version=runtimeSettings.appVersion,
         description="Analyze half-hour traffic counter files.",
         lifespan=lifespan,
     )
-    application.state.settings = runtime_settings
+    application.state.settings = runtimeSettings
 
-    def settings_dependency() -> Settings:
+    def settingsDependency() -> Settings:
         """Return settings bound to this application instance.
 
         Args:
@@ -109,19 +113,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Raises:
             None.
         """
-        return runtime_settings
+        return runtimeSettings
 
-    application.dependency_overrides[get_settings] = settings_dependency
+    application.dependency_overrides[getSettings] = settingsDependency
     application.add_middleware(RequestContextMiddleware)
-    if runtime_settings.cors_origins:
+    if runtimeSettings.corsOrigins:
         application.add_middleware(
             CORSMiddleware,
-            allow_origins=list(runtime_settings.cors_origins),
+            allow_origins=list(runtimeSettings.corsOrigins),
             allow_credentials=False,
             allow_methods=["GET", "POST"],
             allow_headers=["Accept", "Content-Type", "X-API-Key", "X-Request-ID"],
         )
-    application.include_router(traffic_router)
+    application.include_router(trafficRouter)
 
     @application.get(
         "/health/live",
@@ -129,7 +133,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         summary="Liveness check",
         description="Confirms that the API process can serve requests.",
     )
-    async def health_live() -> dict[str, str]:
+    async def healthLive() -> dict[str, str]:
         """Return the process liveness status.
 
         Args:
@@ -149,7 +153,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         summary="Readiness check",
         description="Checks PostgreSQL and the shared rate-limit backend when enabled.",
     )
-    async def health_ready(request: Request) -> JSONResponse:
+    async def healthReady(request: Request) -> JSONResponse:
         """Return whether critical dependencies are ready.
 
         Args:
@@ -161,35 +165,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Raises:
             None.
         """
-        current_settings: Settings = request.app.state.settings
-        database_engine: AsyncEngine | None = getattr(
-            request.app.state,
-            "database_engine",
-            None,
-        )
-        if database_engine is None:
-            if current_settings.database_url is not None:
-                return JSONResponse(status_code=503, content={"status": "not_ready"})
-        else:
-            try:
-                await check_database_connection(database_engine)
-            except SQLAlchemyError:
-                return JSONResponse(status_code=503, content={"status": "not_ready"})
-        redis_client: Redis | None = getattr(request.app.state, "redis_client", None)
-        if current_settings.rate_limit_enabled and redis_client is not None:
-            try:
-                await redis_client.ping()
-            except RedisError:
-                if current_settings.rate_limit_fail_open:
-                    return JSONResponse(
-                        status_code=200,
-                        content={"status": "ready", "rate_limit": "degraded"},
-                    )
-                return JSONResponse(status_code=503, content={"status": "not_ready"})
-        return JSONResponse(status_code=200, content={"status": "ready"})
+        try:
+            currentSettings: Settings = request.app.state.settings
+            databaseEngine: AsyncEngine | None = getattr(
+                request.app.state,
+                "databaseEngine",
+                None,
+            )
+            if databaseEngine is None:
+                if currentSettings.databaseUrl is not None:
+                    return JSONResponse(status_code=503, content={"status": "not_ready"})
+            else:
+                try:
+                    await checkDatabaseConnection(databaseEngine)
+                except SQLAlchemyError:
+                    return JSONResponse(status_code=503, content={"status": "not_ready"})
+            redisClient: Redis | None = getattr(request.app.state, "redisClient", None)
+            if currentSettings.rateLimitEnabled and redisClient is not None:
+                try:
+                    await redisClient.ping()
+                except RedisError:
+                    if currentSettings.rateLimitFailOpen:
+                        return JSONResponse(
+                            status_code=200,
+                            content={"status": "ready", "rateLimit": "degraded"},
+                        )
+                    return JSONResponse(status_code=503, content={"status": "not_ready"})
+            return JSONResponse(status_code=200, content={"status": "ready"})
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in healthReady: {e}")
+            raise
 
     @application.exception_handler(TrafficCounterError)
-    async def traffic_error_handler(
+    async def trafficErrorHandler(
         _request: Request,
         exception: TrafficCounterError,
     ) -> JSONResponse:
@@ -205,18 +213,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Raises:
             None.
         """
-        detail = ErrorDetail(code=exception.code, message=exception.message)
-        headers = None
-        if isinstance(exception, RateLimitExceededError):
-            headers = {"Retry-After": str(exception.retry_after)}
-        return JSONResponse(
-            status_code=exception.status_code,
-            content={"detail": detail.model_dump()},
-            headers=headers,
-        )
+        try:
+            detail = ErrorDetail(code=exception.code, message=exception.message)
+            headers = None
+            if isinstance(exception, RateLimitExceededError):
+                headers = {"Retry-After": str(exception.retryAfter)}
+            return JSONResponse(
+                status_code=exception.statusCode,
+                content={"detail": detail.model_dump()},
+                headers=headers,
+            )
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in trafficErrorHandler: {e}")
+            raise
 
     @application.exception_handler(RequestValidationError)
-    async def request_validation_error_handler(
+    async def requestValidationErrorHandler(
         _request: Request,
         _exception: RequestValidationError,
     ) -> JSONResponse:
@@ -232,14 +244,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Raises:
             None.
         """
-        exception = InvalidRequestBodyError()
-        detail = ErrorDetail(code=exception.code, message=exception.message)
-        return JSONResponse(
-            status_code=exception.status_code,
-            content={"detail": detail.model_dump()},
-        )
+        try:
+            exception = InvalidRequestBodyError()
+            detail = ErrorDetail(code=exception.code, message=exception.message)
+            return JSONResponse(
+                status_code=exception.statusCode,
+                content={"detail": detail.model_dump()},
+            )
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in requestValidationErrorHandler: {e}")
+            raise
 
     return application
 
 
-app = create_app()
+app = createApp()

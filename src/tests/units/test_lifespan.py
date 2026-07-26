@@ -19,16 +19,16 @@ class FakeEngine:
 
 
 @pytest.fixture
-def database_engine(monkeypatch: pytest.MonkeyPatch) -> FakeEngine:
+def databaseEngine(monkeypatch: pytest.MonkeyPatch) -> FakeEngine:
     """Replace PostgreSQL resources with deterministic test doubles."""
     engine = FakeEngine()
 
     async def check_database(_engine: FakeEngine) -> None:
         """Accept the fake database connection."""
 
-    monkeypatch.setattr("src.main.create_database_engine", lambda _settings: engine)
-    monkeypatch.setattr("src.main.check_database_connection", check_database)
-    monkeypatch.setattr("src.main.create_session_factory", lambda _engine: object())
+    monkeypatch.setattr("src.main.createDatabaseEngine", lambda _settings: engine)
+    monkeypatch.setattr("src.main.checkDatabaseConnection", check_database)
+    monkeypatch.setattr("src.main.createSessionFactory", lambda _engine: object())
     return engine
 
 
@@ -63,36 +63,36 @@ class FakeRedis:
 
 async def test_lifespan_initializes_and_closes_rate_limiter(
     monkeypatch: pytest.MonkeyPatch,
-    database_engine: FakeEngine,
+    databaseEngine: FakeEngine,
 ) -> None:
     """Verify enabled shared state is initialized once per API process."""
     redis = FakeRedis()
     monkeypatch.setattr("src.main.Redis.from_url", lambda *_args, **_kwargs: redis)
     application = FastAPI()
     application.state.settings = Settings(
-        rate_limit_enabled=True,
-        rate_limit_redis_url="redis://test",
+        rateLimitEnabled=True,
+        rateLimitRedisUrl="redis://test",
     )
 
     async with lifespan(application):
-        assert application.state.rate_limiter is not None
+        assert application.state.rateLimiter is not None
 
     assert redis.closed
-    assert database_engine.disposed
+    assert databaseEngine.disposed
 
 
 async def test_lifespan_fails_closed_when_redis_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
-    database_engine: FakeEngine,
+    databaseEngine: FakeEngine,
 ) -> None:
     """Verify mandatory rate limiting prevents unsafe startup."""
     redis = FakeRedis(fail_ping=True)
     monkeypatch.setattr("src.main.Redis.from_url", lambda *_args, **_kwargs: redis)
     application = FastAPI()
     application.state.settings = Settings(
-        rate_limit_enabled=True,
-        rate_limit_redis_url="redis://test",
-        rate_limit_fail_open=False,
+        rateLimitEnabled=True,
+        rateLimitRedisUrl="redis://test",
+        rateLimitFailOpen=False,
     )
 
     with pytest.raises(ConnectionError):
@@ -100,38 +100,38 @@ async def test_lifespan_fails_closed_when_redis_is_unavailable(
             raise AssertionError("Application should not start.")
 
     assert redis.closed
-    assert database_engine.disposed
+    assert databaseEngine.disposed
 
 
 async def test_lifespan_fails_open_when_redis_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
-    database_engine: FakeEngine,
+    databaseEngine: FakeEngine,
 ) -> None:
     """Verify optional limiting permits startup while logging degradation."""
     redis = FakeRedis(fail_ping=True)
     monkeypatch.setattr("src.main.Redis.from_url", lambda *_args, **_kwargs: redis)
     application = FastAPI()
     application.state.settings = Settings(
-        rate_limit_enabled=True,
-        rate_limit_redis_url="redis://test",
-        rate_limit_fail_open=True,
+        rateLimitEnabled=True,
+        rateLimitRedisUrl="redis://test",
+        rateLimitFailOpen=True,
     )
 
     async with lifespan(application):
-        assert application.state.rate_limiter is not None
+        assert application.state.rateLimiter is not None
 
     assert redis.closed
-    assert database_engine.disposed
+    assert databaseEngine.disposed
     assert "Rate-limit backend unavailable during startup" in caplog.text
 
 
-async def test_lifespan_without_rate_limiting(database_engine: FakeEngine) -> None:
+async def test_lifespan_without_rate_limiting(databaseEngine: FakeEngine) -> None:
     """Verify startup and shutdown need no Redis resource when disabled."""
     application = FastAPI()
-    application.state.settings = Settings(rate_limit_enabled=False)
+    application.state.settings = Settings(rateLimitEnabled=False)
 
     async with lifespan(application):
-        assert not hasattr(application.state, "redis_client")
+        assert not hasattr(application.state, "redisClient")
 
-    assert database_engine.disposed
+    assert databaseEngine.disposed

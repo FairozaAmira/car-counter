@@ -25,6 +25,11 @@ class RateLimitBackend(Protocol):
         Raises:
             RedisError: If Redis is unavailable.
         """
+        try:
+            raise NotImplementedError  # pragma: no cover - protocol declaration
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in incr: {e}")
+            raise
 
     def expire(self, key: str, seconds: int) -> Awaitable[bool]:
         """Set a key expiration.
@@ -39,6 +44,11 @@ class RateLimitBackend(Protocol):
         Raises:
             RedisError: If Redis is unavailable.
         """
+        try:
+            raise NotImplementedError  # pragma: no cover - protocol declaration
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in expire: {e}")
+            raise
 
 
 class RedisRateLimiter:
@@ -47,15 +57,15 @@ class RedisRateLimiter:
     def __init__(
         self,
         backend: RateLimitBackend,
-        window_seconds: int,
-        fail_open: bool,
+        windowSeconds: int,
+        failOpen: bool,
     ) -> None:
         """Create a shared rate limiter.
 
         Args:
             backend: Redis-compatible async backend.
-            window_seconds: Fixed-window size.
-            fail_open: Whether requests continue when Redis is unavailable.
+            windowSeconds: Fixed-window size.
+            failOpen: Whether requests continue when Redis is unavailable.
 
         Returns:
             A configured rate limiter.
@@ -63,11 +73,15 @@ class RedisRateLimiter:
         Raises:
             ValueError: If the window is not positive.
         """
-        if window_seconds < 1:
-            raise ValueError("window_seconds must be positive.")
-        self._backend = backend
-        self._window_seconds = window_seconds
-        self._fail_open = fail_open
+        try:
+            if windowSeconds < 1:
+                raise ValueError("windowSeconds must be positive.")
+            self._backend = backend
+            self._windowSeconds = windowSeconds
+            self._failOpen = failOpen
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in __init__: {e}")
+            raise
 
     async def enforce(self, identity: str, limit: int) -> None:
         """Reject an identity after it exceeds its current window.
@@ -84,19 +98,23 @@ class RedisRateLimiter:
             RedisError: If the backend fails and fail-open is disabled.
             ValueError: If the limit is not positive.
         """
-        if limit < 1:
-            raise ValueError("limit must be positive.")
-        window = int(time.time()) // self._window_seconds
-        key = f"traffic-api:rate-limit:{identity}:{window}"
         try:
-            count = await self._backend.incr(key)
-            if count == 1:
-                await self._backend.expire(key, self._window_seconds + 1)
-        except RedisError:
-            logger.exception("Rate-limit backend failed", extra={"operation": "rate_limit"})
-            if self._fail_open:
-                return
+            if limit < 1:
+                raise ValueError("limit must be positive.")
+            window = int(time.time()) // self._windowSeconds
+            key = f"traffic-api:rate-limit:{identity}:{window}"
+            try:
+                count = await self._backend.incr(key)
+                if count == 1:
+                    await self._backend.expire(key, self._windowSeconds + 1)
+            except RedisError:
+                logger.exception("Rate-limit backend failed", extra={"operation": "rate_limit"})
+                if self._failOpen:
+                    return
+                raise
+            if count > limit:
+                retryAfter = self._windowSeconds - (int(time.time()) % self._windowSeconds)
+                raise RateLimitExceededError(retryAfter=max(retryAfter, 1))
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in enforce: {e}")
             raise
-        if count > limit:
-            retry_after = self._window_seconds - (int(time.time()) % self._window_seconds)
-            raise RateLimitExceededError(retry_after=max(retry_after, 1))

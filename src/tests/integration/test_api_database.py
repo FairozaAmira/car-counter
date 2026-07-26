@@ -5,8 +5,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.config import Settings
-from src.main import create_app
-from src.routers.traffic import get_analysis_repository
+from src.main import createApp
+from src.routers.traffic import getAnalysisRepository
 from src.utils.errors import DatabasePersistenceError
 
 VALID = """\
@@ -18,9 +18,9 @@ VALID = """\
 
 async def test_readiness_requires_initialized_database() -> None:
     """Verify a configured database must have completed application startup."""
-    database_app = create_app(
+    database_app = createApp(
         Settings(
-            database_url=(
+            databaseUrl=(
                 "postgresql+asyncpg://application:application@localhost:5432/application_test"
             ),
         ),
@@ -44,9 +44,9 @@ async def test_readiness_reports_database_probe_failure(
         """Raise a deterministic SQLAlchemy connection failure."""
         raise SQLAlchemyError("database unavailable")
 
-    database_app = create_app(Settings(database_url=None))
-    database_app.state.database_engine = object()
-    monkeypatch.setattr("src.main.check_database_connection", failed_probe)
+    database_app = createApp(Settings(databaseUrl=None))
+    database_app.state.databaseEngine = object()
+    monkeypatch.setattr("src.main.checkDatabaseConnection", failed_probe)
     async with AsyncClient(
         transport=ASGITransport(app=database_app),
         base_url="http://test",
@@ -67,8 +67,8 @@ async def test_database_failure_returns_safe_service_error() -> None:
             """Reject every attempted write."""
             raise DatabasePersistenceError
 
-    failing_app = create_app(Settings(database_url=None))
-    failing_app.dependency_overrides[get_analysis_repository] = FailingRepository
+    failing_app = createApp(Settings(databaseUrl=None))
+    failing_app.dependency_overrides[getAnalysisRepository] = FailingRepository
     async with AsyncClient(
         transport=ASGITransport(app=failing_app),
         base_url="http://test",
@@ -80,6 +80,6 @@ async def test_database_failure_returns_safe_service_error() -> None:
 
     assert response.status_code == 503
     assert response.json()["detail"] == {
-        "code": "database_write_error",
+        "code": "ERR00020",
         "message": "The analysis result could not be stored.",
     }
