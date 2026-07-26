@@ -12,8 +12,8 @@ POSTGRES_PASSWORD ?= application-local
 POSTGRES_PORT ?= 5433
 DOCKER_DATABASE_URL ?= postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(DOCKER_DATABASE_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)
 KAFKA_BOOTSTRAP_SERVER ?= localhost:29092
-KAFKA_REQUEST_TOPIC ?= traffic.analysis.requests
-KAFKA_RESULT_TOPIC ?= traffic.analysis.results
+KAFKA_REQUEST_TOPIC ?= traffic-analysis-requests
+KAFKA_RESULT_TOPIC ?= traffic-analysis-results
 ALEMBIC_CONFIG ?= src/migrations/alembic.ini
 REVISION ?= -1
 
