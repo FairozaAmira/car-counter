@@ -116,8 +116,8 @@ def test_migration_environment_modes(
         lambda *_args, **_kwargs: engine,
     )
     monkeypatch.setattr(
-        "src.config.get_settings",
-        lambda: Settings(database_url=DATABASE_URL),
+        "src.config.getSettings",
+        lambda: Settings(databaseUrl=DATABASE_URL),
     )
 
     namespace = runpy.run_module("src.migrations.env", run_name=f"__migration_{offline}__")
@@ -129,6 +129,6 @@ def test_migration_environment_modes(
         assert context.configurations[0]["connection"] is not None
         assert engine.disposed
 
-    namespace["get_settings"] = lambda: Settings(database_url=None)
+    namespace["getSettings"] = lambda: Settings(databaseUrl=None)
     with pytest.raises(RuntimeError, match="DATABASE_URL"):
-        namespace["get_database_url"]()
+        namespace["getDatabaseUrl"]()

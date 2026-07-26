@@ -28,5 +28,5 @@ async def test_request_context_logs_and_reraises_downstream_error(
     with pytest.raises(RuntimeError, match="downstream failed"):
         await middleware.dispatch(request, fail)
 
-    assert request.state.request_id == "request-123"
+    assert request.state.requestId == "request-123"
     assert "Request failed" in caplog.text

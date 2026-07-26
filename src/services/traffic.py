@@ -9,10 +9,10 @@ from src.schemas.traffic import (
     ErrorDetail,
     ProcessingStatus,
 )
-from src.services.analyzer import analyze_traffic
-from src.services.parser import parse_traffic_text
+from src.services.analyzer import analyzeTraffic
+from src.services.parser import parseTrafficText
 from src.utils.errors import TrafficCounterError
-from src.utils.files import read_upload_text, safe_upload_filename
+from src.utils.files import readUploadText, safeUploadFilename
 
 
 class TrafficAnalysisService:
@@ -20,16 +20,16 @@ class TrafficAnalysisService:
 
     def __init__(
         self,
-        upload_max_bytes: int = 1_048_576,
-        allowed_extensions: tuple[str, ...] = (".txt",),
-        allowed_mime_types: tuple[str, ...] = ("text/plain", "application/octet-stream"),
+        uploadMaxBytes: int = 1_048_576,
+        allowedExtensions: tuple[str, ...] = (".txt",),
+        allowedMimeTypes: tuple[str, ...] = ("text/plain", "application/octet-stream"),
     ) -> None:
         """Configure secure upload validation.
 
         Args:
-            upload_max_bytes: Maximum accepted upload size.
-            allowed_extensions: Permitted lowercase filename extensions.
-            allowed_mime_types: Permitted client content types.
+            uploadMaxBytes: Maximum accepted upload size.
+            allowedExtensions: Permitted lowercase filename extensions.
+            allowedMimeTypes: Permitted client content types.
 
         Returns:
             A configured analysis service.
@@ -37,13 +37,13 @@ class TrafficAnalysisService:
         Raises:
             ValueError: If the maximum upload size is not positive.
         """
-        if upload_max_bytes < 1:
-            raise ValueError("upload_max_bytes must be positive.")
-        self._upload_max_bytes = upload_max_bytes
-        self._allowed_extensions = {extension.lower() for extension in allowed_extensions}
-        self._allowed_mime_types = {mime_type.lower() for mime_type in allowed_mime_types}
+        if uploadMaxBytes < 1:
+            raise ValueError("uploadMaxBytes must be positive.")
+        self._uploadMaxBytes = uploadMaxBytes
+        self._allowedExtensions = {extension.lower() for extension in allowedExtensions}
+        self._allowedMimeTypes = {mimeType.lower() for mimeType in allowedMimeTypes}
 
-    def analyze_text(self, content: str) -> AnalysisResult:
+    def analyzeText(self, content: str) -> AnalysisResult:
         """Parse and analyze traffic text.
 
         Args:
@@ -55,9 +55,13 @@ class TrafficAnalysisService:
         Raises:
             TrafficCounterError: If the content cannot be parsed or analyzed.
         """
-        return analyze_traffic(parse_traffic_text(content))
+        try:
+            return analyzeTraffic(parseTrafficText(content))
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in analyzeText: {e}")
+            raise
 
-    async def analyze_upload(self, upload: UploadFile) -> AnalysisResult:
+    async def analyzeUpload(self, upload: UploadFile) -> AnalysisResult:
         """Validate, read, and analyze one upload.
 
         Args:
@@ -70,15 +74,19 @@ class TrafficAnalysisService:
             UploadValidationError: If filename, MIME type, size, or content is unsafe.
             TrafficCounterError: If traffic records are invalid.
         """
-        content = await read_upload_text(
-            upload,
-            self._upload_max_bytes,
-            self._allowed_extensions,
-            self._allowed_mime_types,
-        )
-        return self.analyze_text(content)
+        try:
+            content = await readUploadText(
+                upload,
+                self._uploadMaxBytes,
+                self._allowedExtensions,
+                self._allowedMimeTypes,
+            )
+            return self.analyzeText(content)
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in analyzeUpload: {e}")
+            raise
 
-    async def analyze_uploads(
+    async def analyzeUploads(
         self,
         uploads: list[UploadFile],
         concurrency: int,
@@ -95,32 +103,40 @@ class TrafficAnalysisService:
         Raises:
             ValueError: If concurrency is less than one.
         """
-        if concurrency < 1:
-            raise ValueError("concurrency must be positive.")
-        semaphore = asyncio.Semaphore(concurrency)
-        results: list[BatchAnalysisItem | None] = [None] * len(uploads)
+        try:
+            if concurrency < 1:
+                raise ValueError("concurrency must be positive.")
+            semaphore = asyncio.Semaphore(concurrency)
+            results: list[BatchAnalysisItem | None] = [None] * len(uploads)
 
-        async def analyze_one(index: int, upload: UploadFile) -> None:
-            """Store one upload outcome at its original input index."""
-            filename = f"upload-{index + 1}.txt"
-            async with semaphore:
+            async def analyzeOne(index: int, upload: UploadFile) -> None:
+                """Store one upload outcome at its original input index."""
                 try:
-                    filename = safe_upload_filename(upload, index)
-                    result = await self.analyze_upload(upload)
-                    results[index] = BatchAnalysisItem(
-                        filename=filename,
-                        status=ProcessingStatus.COMPLETED,
-                        result=result,
-                    )
-                except TrafficCounterError as exc:
-                    results[index] = BatchAnalysisItem(
-                        filename=filename,
-                        status=ProcessingStatus.FAILED,
-                        error=ErrorDetail(code=exc.code, message=exc.message),
-                    )
+                    filename = f"upload-{index + 1}.txt"
+                    async with semaphore:
+                        try:
+                            filename = safeUploadFilename(upload, index)
+                            result = await self.analyzeUpload(upload)
+                            results[index] = BatchAnalysisItem(
+                                filename=filename,
+                                status=ProcessingStatus.COMPLETED,
+                                result=result,
+                            )
+                        except TrafficCounterError as exc:
+                            results[index] = BatchAnalysisItem(
+                                filename=filename,
+                                status=ProcessingStatus.FAILED,
+                                error=ErrorDetail(code=exc.code, message=exc.message),
+                            )
+                except Exception as e:  # pragma: no cover - diagnostic boundary
+                    print(f"Error in analyzeOne: {e}")
+                    raise
 
-        await asyncio.gather(
-            *(analyze_one(index, upload) for index, upload in enumerate(uploads)),
-        )
+            await asyncio.gather(
+                *(analyzeOne(index, upload) for index, upload in enumerate(uploads)),
+            )
 
-        return BatchAnalysisResult(items=[item for item in results if item is not None])
+            return BatchAnalysisResult(items=[item for item in results if item is not None])
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in analyzeUploads: {e}")
+            raise

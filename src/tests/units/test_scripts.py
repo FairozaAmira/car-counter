@@ -26,7 +26,7 @@ def test_analyze_cli_outputs_json(
 
     analyze.main()
 
-    assert '"total_cars": 6' in capsys.readouterr().out
+    assert '"totalCars": 6' in capsys.readouterr().out
 
 
 async def test_kafka_producer_run_starts_and_stops_service(
@@ -46,7 +46,7 @@ async def test_kafka_producer_run_starts_and_stops_service(
             """Record startup."""
             events.append("start")
 
-        async def publish_files(
+        async def publishFiles(
             self,
             paths: list[Path],
             _concurrency: int,
@@ -108,8 +108,8 @@ def test_serve_cli_uses_runtime_settings(monkeypatch: pytest.MonkeyPatch) -> Non
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         serve,
-        "get_settings",
-        lambda: Settings(app_host="127.0.0.1", app_port=9000, app_workers=1),
+        "getSettings",
+        lambda: Settings(appHost="127.0.0.1", appPort=9000, appWorkers=1),
     )
     monkeypatch.setattr(
         serve.uvicorn,

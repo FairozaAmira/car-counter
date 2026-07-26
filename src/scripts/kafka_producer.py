@@ -2,11 +2,11 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from src.config import get_settings
+from src.config import getSettings
 from src.services.kafka_producer import KafkaProducerService
 
 
-def build_parser() -> argparse.ArgumentParser:
+def buildParser() -> argparse.ArgumentParser:
     """Build the Kafka producer CLI parser.
 
     Args:
@@ -35,17 +35,21 @@ async def run(paths: list[Path]) -> int:
     Raises:
         KafkaError: If producer startup or shutdown fails.
     """
-    settings = get_settings()
-    service = KafkaProducerService(settings)
-    await service.start()
     try:
-        results = await service.publish_files(paths, settings.batch_concurrency)
-    finally:
-        await service.stop()
+        settings = getSettings()
+        service = KafkaProducerService(settings)
+        await service.start()
+        try:
+            results = await service.publishFiles(paths, settings.batchConcurrency)
+        finally:
+            await service.stop()
 
-    for result in results:
-        print(result.model_dump_json())
-    return 1 if any(result.status == "failed" for result in results) else 0
+        for result in results:
+            print(result.model_dump_json())
+        return 1 if any(result.status == "failed" for result in results) else 0
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in run: {e}")
+        raise
 
 
 def main() -> None:
@@ -60,7 +64,7 @@ def main() -> None:
     Raises:
         SystemExit: Always, using the producer result as the exit code.
     """
-    args = build_parser().parse_args()
+    args = buildParser().parse_args()
     raise SystemExit(asyncio.run(run(args.files)))
 
 

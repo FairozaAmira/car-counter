@@ -30,7 +30,7 @@ class RecordingResultProducer:
         """Record shutdown."""
         self.events.append("stop")
 
-    async def publish_result(self, event: object) -> None:
+    async def publishResult(self, event: object) -> None:
         """Record a published result."""
         self.results.append(event)
 
@@ -38,9 +38,9 @@ class RecordingResultProducer:
 class PollingConsumer:
     """Return an empty poll followed by one message."""
 
-    def __init__(self, stop_event: asyncio.Event, raw_value: bytes) -> None:
-        self.stop_event = stop_event
-        self.raw_value = raw_value
+    def __init__(self, stopEvent: asyncio.Event, rawValue: bytes) -> None:
+        self.stopEvent = stopEvent
+        self.rawValue = rawValue
         self.poll_count = 0
         self.events: list[str] = []
 
@@ -57,9 +57,9 @@ class PollingConsumer:
         self.poll_count += 1
         if self.poll_count == 1:
             return {}
-        self.stop_event.set()
+        self.stopEvent.set()
         partition = TopicPartition("traffic.analysis.requests", 0)
-        return {partition: [SimpleNamespace(value=self.raw_value, offset=0)]}
+        return {partition: [SimpleNamespace(value=self.rawValue, offset=0)]}
 
     async def commit(self, _offsets: object) -> None:
         """Record a committed message."""
@@ -90,18 +90,18 @@ class FailingPollingConsumer:
 
 async def test_consumer_start_failure_cleans_up_result_producer() -> None:
     """Verify partial startup is rolled back."""
-    result_producer = RecordingResultProducer()
+    resultProducer = RecordingResultProducer()
     service = KafkaConsumerService(
         Settings(),
-        consumer_factory=lambda *_args, **_kwargs: FailingConsumer(),
-        result_producer=result_producer,  # type: ignore[arg-type]
+        consumerFactory=lambda *_args, **_kwargs: FailingConsumer(),
+        resultProducer=resultProducer,  # type: ignore[arg-type]
     )
 
     with pytest.raises(KafkaConsumerInitializationError) as captured:
         await service.start()
 
     assert captured.value.code == ErrorCode.KAFKA_CONSUMER_INITIALIZATION
-    assert result_producer.events == ["start", "stop"]
+    assert resultProducer.events == ["start", "stop"]
 
 
 async def test_consumer_factory_failure_uses_initialization_error() -> None:
@@ -111,7 +111,7 @@ async def test_consumer_factory_failure_uses_initialization_error() -> None:
         """Raise a deterministic client-construction failure."""
         raise RuntimeError("factory unavailable")
 
-    service = KafkaConsumerService(Settings(), consumer_factory=fail_factory)
+    service = KafkaConsumerService(Settings(), consumerFactory=fail_factory)
 
     with pytest.raises(KafkaConsumerInitializationError) as captured:
         await service.start()
@@ -121,26 +121,26 @@ async def test_consumer_factory_failure_uses_initialization_error() -> None:
 
 async def test_consumer_requires_start_and_stop_is_idempotent() -> None:
     """Verify the worker guard and repeated shutdown behavior."""
-    result_producer = RecordingResultProducer()
+    resultProducer = RecordingResultProducer()
     service = KafkaConsumerService(
         Settings(),
-        result_producer=result_producer,  # type: ignore[arg-type]
+        resultProducer=resultProducer,  # type: ignore[arg-type]
     )
 
     with pytest.raises(RuntimeError, match="has not been started"):
         await service.run(asyncio.Event())
 
     await service.stop()
-    assert result_producer.events == ["stop"]
+    assert resultProducer.events == ["stop"]
 
 
 async def test_consumer_action_uses_standard_error() -> None:
     """Verify polling failures use the standard consumer-action error."""
-    result_producer = RecordingResultProducer()
+    resultProducer = RecordingResultProducer()
     service = KafkaConsumerService(
         Settings(),
-        consumer_factory=lambda *_args, **_kwargs: FailingPollingConsumer(),
-        result_producer=result_producer,  # type: ignore[arg-type]
+        consumerFactory=lambda *_args, **_kwargs: FailingPollingConsumer(),
+        resultProducer=resultProducer,  # type: ignore[arg-type]
     )
 
     await service.start()
@@ -154,26 +154,26 @@ async def test_consumer_action_uses_standard_error() -> None:
 async def test_consumer_polls_until_stopped_and_processes_messages() -> None:
     """Verify empty polls continue and later messages are processed."""
     request = KafkaAnalysisRequest(
-        request_id="d768e416-7cb7-419e-b11d-b6e94f813944",
+        requestId="d768e416-7cb7-419e-b11d-b6e94f813944",
         filename="traffic.txt",
         records=[
-            TrafficRecord(timestamp="2021-01-01T00:00:00", car_count=1),
-            TrafficRecord(timestamp="2021-01-01T00:30:00", car_count=2),
-            TrafficRecord(timestamp="2021-01-01T01:00:00", car_count=3),
+            TrafficRecord(timestamp="2021-01-01T00:00:00", carCount=1),
+            TrafficRecord(timestamp="2021-01-01T00:30:00", carCount=2),
+            TrafficRecord(timestamp="2021-01-01T01:00:00", carCount=3),
         ],
     )
-    stop_event = asyncio.Event()
-    consumer = PollingConsumer(stop_event, request.model_dump_json().encode())
-    result_producer = RecordingResultProducer()
+    stopEvent = asyncio.Event()
+    consumer = PollingConsumer(stopEvent, request.model_dump_json().encode())
+    resultProducer = RecordingResultProducer()
     service = KafkaConsumerService(
         Settings(),
-        consumer_factory=lambda *_args, **_kwargs: consumer,
-        result_producer=result_producer,  # type: ignore[arg-type]
+        consumerFactory=lambda *_args, **_kwargs: consumer,
+        resultProducer=resultProducer,  # type: ignore[arg-type]
     )
 
     await service.start()
     await service.start()
-    await service.run(stop_event)
+    await service.run(stopEvent)
     await service.stop()
     await service.stop()
 
@@ -182,14 +182,14 @@ async def test_consumer_polls_until_stopped_and_processes_messages() -> None:
 
 
 @pytest.mark.parametrize(
-    ("raw_value", "expected_code"),
+    ("rawValue", "expected_code"),
     [
         (b"not-json", ErrorCode.INVALID_JSON_REQUEST_BODY),
         (
             KafkaAnalysisRequest(
-                request_id="d768e416-7cb7-419e-b11d-b6e94f813944",
+                requestId="d768e416-7cb7-419e-b11d-b6e94f813944",
                 filename="traffic.txt",
-                records=[TrafficRecord(timestamp="2021-01-01T00:00:00", car_count=1)],
+                records=[TrafficRecord(timestamp="2021-01-01T00:00:00", carCount=1)],
             )
             .model_dump_json()
             .encode(),
@@ -198,17 +198,17 @@ async def test_consumer_polls_until_stopped_and_processes_messages() -> None:
     ],
 )
 async def test_consumer_publishes_safe_failure_results(
-    raw_value: bytes,
+    rawValue: bytes,
     expected_code: str,
 ) -> None:
     """Verify invalid and unanalyzable requests publish failed results."""
-    result_producer = RecordingResultProducer()
+    resultProducer = RecordingResultProducer()
     service = KafkaConsumerService(
         Settings(),
-        result_producer=result_producer,  # type: ignore[arg-type]
+        resultProducer=resultProducer,  # type: ignore[arg-type]
     )
 
-    result = await service.process_message(raw_value)
+    result = await service.processMessage(rawValue)
 
     assert result.status is ProcessingStatus.FAILED
     assert result.error is not None

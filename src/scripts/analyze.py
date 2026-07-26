@@ -2,10 +2,10 @@ import argparse
 from pathlib import Path
 
 from src.services.traffic import TrafficAnalysisService
-from src.utils.files import read_text_file
+from src.utils.files import readTextFile
 
 
-def build_parser() -> argparse.ArgumentParser:
+def buildParser() -> argparse.ArgumentParser:
     """Build the traffic analysis CLI parser.
 
     Args:
@@ -35,9 +35,9 @@ def main() -> None:
         OSError: If the selected file cannot be read.
         TrafficCounterError: If its traffic records are invalid.
     """
-    args = build_parser().parse_args()
-    content = read_text_file(args.file)
-    result = TrafficAnalysisService().analyze_text(content)
+    args = buildParser().parse_args()
+    content = readTextFile(args.file)
+    result = TrafficAnalysisService().analyzeText(content)
     print(result.model_dump_json(indent=2))
 
 

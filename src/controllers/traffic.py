@@ -17,20 +17,28 @@ from src.schemas.traffic import (
 from src.services.traffic import TrafficAnalysisService
 
 
-def _format_analysis_result(result: AnalysisResult) -> AnalysisDataResponse:
+def _formatAnalysisResult(result: AnalysisResult) -> AnalysisDataResponse:
     """Convert domain analysis data to its API response representation."""
-    return AnalysisDataResponse.model_validate(result.model_dump())
+    try:
+        return AnalysisDataResponse.model_validate(result.model_dump())
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in _formatAnalysisResult: {e}")
+        raise
 
 
-def _format_batch_item(item: BatchAnalysisItem) -> BatchAnalysisItemResponse:
+def _formatBatchItem(item: BatchAnalysisItem) -> BatchAnalysisItemResponse:
     """Convert one domain batch item to its API response representation."""
-    result = _format_analysis_result(item.result) if item.result is not None else None
-    return BatchAnalysisItemResponse(
-        filename=item.filename,
-        status=item.status,
-        result=result,
-        error=item.error,
-    )
+    try:
+        result = _formatAnalysisResult(item.result) if item.result is not None else None
+        return BatchAnalysisItemResponse(
+            filename=item.filename,
+            status=item.status,
+            result=result,
+            error=item.error,
+        )
+    except Exception as e:  # pragma: no cover - diagnostic boundary
+        print(f"Error in _formatBatchItem: {e}")
+        raise
 
 
 class TrafficController:
@@ -40,14 +48,14 @@ class TrafficController:
         self,
         service: TrafficAnalysisService,
         repository: AnalysisResultRepository,
-        batch_concurrency: int,
+        batchConcurrency: int,
     ) -> None:
         """Create a controller.
 
         Args:
             service: Traffic analysis service.
             repository: Traffic analysis result repository.
-            batch_concurrency: Maximum concurrent batch operations.
+            batchConcurrency: Maximum concurrent batch operations.
 
         Returns:
             A configured controller.
@@ -55,11 +63,15 @@ class TrafficController:
         Raises:
             ValueError: If batch concurrency is invalid.
         """
-        if batch_concurrency < 1:
-            raise ValueError("batch_concurrency must be positive.")
-        self._service = service
-        self._repository = repository
-        self._batch_concurrency = batch_concurrency
+        try:
+            if batchConcurrency < 1:
+                raise ValueError("batchConcurrency must be positive.")
+            self._service = service
+            self._repository = repository
+            self._batchConcurrency = batchConcurrency
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in __init__: {e}")
+            raise
 
     async def analyze(self, file: UploadFile) -> AnalysisResponse:
         """Analyze one uploaded traffic file.
@@ -73,25 +85,29 @@ class TrafficController:
         Raises:
             TrafficCounterError: If validation or analysis fails.
         """
-        started_at = perf_counter()
-        created_at = datetime.now(UTC)
-        result = await self._service.analyze_upload(file)
-        response = AnalysisResponse(
-            id=uuid4(),
-            created_at=created_at,
-            time_taken=round((perf_counter() - started_at) * 1_000, 2),
-            **_format_analysis_result(result).model_dump(),
-        )
-        await self._repository.save(
-            result_id=response.id,
-            analysis_kind=AnalysisKind.SINGLE,
-            created_at=response.created_at,
-            time_taken=response.time_taken,
-            response_payload=response.model_dump(mode="json", by_alias=True),
-        )
-        return response
+        try:
+            startedAt = perf_counter()
+            createdAt = datetime.now(UTC)
+            result = await self._service.analyzeUpload(file)
+            response = AnalysisResponse(
+                id=uuid4(),
+                createdAt=createdAt,
+                timeTaken=round((perf_counter() - startedAt) * 1_000, 2),
+                **_formatAnalysisResult(result).model_dump(),
+            )
+            await self._repository.save(
+                resultId=response.id,
+                analysisKind=AnalysisKind.SINGLE,
+                createdAt=response.createdAt,
+                timeTaken=response.timeTaken,
+                responsePayload=response.model_dump(mode="json", by_alias=True),
+            )
+            return response
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in analyze: {e}")
+            raise
 
-    async def analyze_batch(self, files: list[UploadFile]) -> BatchAnalysisResponse:
+    async def analyzeBatch(self, files: list[UploadFile]) -> BatchAnalysisResponse:
         """Analyze multiple uploaded files with bounded concurrency.
 
         Args:
@@ -103,20 +119,24 @@ class TrafficController:
         Raises:
             ValueError: If controller configuration is invalid.
         """
-        started_at = perf_counter()
-        created_at = datetime.now(UTC)
-        result = await self._service.analyze_uploads(files, self._batch_concurrency)
-        response = BatchAnalysisResponse(
-            id=uuid4(),
-            created_at=created_at,
-            time_taken=round((perf_counter() - started_at) * 1_000, 2),
-            items=[_format_batch_item(item) for item in result.items],
-        )
-        await self._repository.save(
-            result_id=response.id,
-            analysis_kind=AnalysisKind.BATCH,
-            created_at=response.created_at,
-            time_taken=response.time_taken,
-            response_payload=response.model_dump(mode="json", by_alias=True),
-        )
-        return response
+        try:
+            startedAt = perf_counter()
+            createdAt = datetime.now(UTC)
+            result = await self._service.analyzeUploads(files, self._batchConcurrency)
+            response = BatchAnalysisResponse(
+                id=uuid4(),
+                createdAt=createdAt,
+                timeTaken=round((perf_counter() - startedAt) * 1_000, 2),
+                items=[_formatBatchItem(item) for item in result.items],
+            )
+            await self._repository.save(
+                resultId=response.id,
+                analysisKind=AnalysisKind.BATCH,
+                createdAt=response.createdAt,
+                timeTaken=response.timeTaken,
+                responsePayload=response.model_dump(mode="json", by_alias=True),
+            )
+            return response
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in analyzeBatch: {e}")
+            raise

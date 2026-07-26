@@ -4,7 +4,7 @@ import logging
 from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -22,20 +22,20 @@ class AnalysisResultRepository(Protocol):
     async def save(
         self,
         *,
-        result_id: UUID,
-        analysis_kind: AnalysisKind,
-        created_at: datetime,
-        time_taken: float,
-        response_payload: Mapping[str, object],
+        resultId: UUID,
+        analysisKind: AnalysisKind,
+        createdAt: datetime,
+        timeTaken: float,
+        responsePayload: Mapping[str, object],
     ) -> None:
         """Persist one completed POST response.
 
         Args:
-            result_id: Database primary key and response identifier.
-            analysis_kind: POST operation that produced the result.
-            created_at: Timezone-aware UTC creation timestamp.
-            time_taken: Total request processing time in milliseconds.
-            response_payload: JSON-compatible complete API response.
+            resultId: Database primary key and response identifier.
+            analysisKind: POST operation that produced the result.
+            createdAt: Timezone-aware UTC creation timestamp.
+            timeTaken: Total request processing time in milliseconds.
+            responsePayload: JSON-compatible complete API response.
 
         Returns:
             None.
@@ -43,7 +43,11 @@ class AnalysisResultRepository(Protocol):
         Raises:
             DatabasePersistenceError: If the transaction fails.
         """
-        ...
+        try:
+            ...  # pragma: no cover - protocol declaration
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in save: {e}")
+            raise
 
 
 class SqlAlchemyAnalysisResultRepository:
@@ -61,25 +65,29 @@ class SqlAlchemyAnalysisResultRepository:
         Raises:
             None.
         """
-        self._session = session
+        try:
+            self._session = session
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in __init__: {e}")
+            raise
 
     async def save(
         self,
         *,
-        result_id: UUID,
-        analysis_kind: AnalysisKind,
-        created_at: datetime,
-        time_taken: float,
-        response_payload: Mapping[str, object],
+        resultId: UUID,
+        analysisKind: AnalysisKind,
+        createdAt: datetime,
+        timeTaken: float,
+        responsePayload: Mapping[str, object],
     ) -> None:
         """Persist one completed POST response in a transaction.
 
         Args:
-            result_id: Database primary key and response identifier.
-            analysis_kind: POST operation that produced the result.
-            created_at: Timezone-aware UTC creation timestamp.
-            time_taken: Total request processing time in milliseconds.
-            response_payload: JSON-compatible complete API response.
+            resultId: Database primary key and response identifier.
+            analysisKind: POST operation that produced the result.
+            createdAt: Timezone-aware UTC creation timestamp.
+            timeTaken: Total request processing time in milliseconds.
+            responsePayload: JSON-compatible complete API response.
 
         Returns:
             None.
@@ -87,17 +95,41 @@ class SqlAlchemyAnalysisResultRepository:
         Raises:
             DatabasePersistenceError: If SQLAlchemy cannot commit the result.
         """
-        model = TrafficAnalysisResult(
-            id=result_id,
-            analysis_kind=analysis_kind.value,
-            created_at=created_at,
-            time_taken=Decimal(str(time_taken)),
-            response_payload=dict(response_payload),
-        )
         try:
-            async with self._session.begin():
-                self._session.add(model)
-        except SQLAlchemyError as exc:
-            await self._session.rollback()
-            logger.exception("Failed to persist traffic analysis result")
-            raise DatabasePersistenceError() from exc
+            leastCarsPeriod = cast(
+                Mapping[str, object],
+                responsePayload.get("leastCarsPeriod") or {},
+            )
+            model = TrafficAnalysisResult(
+                id=resultId,
+                analysisKind=analysisKind.value,
+                createdAt=createdAt,
+                timeTaken=Decimal(str(timeTaken)),
+                totalCars=cast(int | None, responsePayload.get("totalCars")),
+                dailyTotals=cast(
+                    list[dict[str, object]] | None,
+                    responsePayload.get("dailyTotals"),
+                ),
+                topHalfHours=cast(
+                    list[dict[str, object]] | None,
+                    responsePayload.get("topHalfHours"),
+                ),
+                leastCarsPeriodStart=cast(str | None, leastCarsPeriod.get("start")),
+                leastCarsPeriodEnd=cast(str | None, leastCarsPeriod.get("end")),
+                leastCarsPeriodTotalCars=cast(int | None, leastCarsPeriod.get("totalCars")),
+                leastCarsPeriodRecords=cast(
+                    list[dict[str, object]] | None,
+                    leastCarsPeriod.get("records"),
+                ),
+                items=cast(list[dict[str, object]] | None, responsePayload.get("items")),
+            )
+            try:
+                async with self._session.begin():
+                    self._session.add(model)
+            except SQLAlchemyError as exc:
+                await self._session.rollback()
+                logger.exception("Failed to persist traffic analysis result")
+                raise DatabasePersistenceError() from exc
+        except Exception as e:  # pragma: no cover - diagnostic boundary
+            print(f"Error in save: {e}")
+            raise

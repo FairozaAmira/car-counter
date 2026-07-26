@@ -1,7 +1,7 @@
 import asyncio
 import signal
 
-from src.config import get_settings
+from src.config import getSettings
 from src.services.kafka_consumer import KafkaConsumerService
 
 
@@ -17,15 +17,15 @@ async def run() -> None:
     Raises:
         KafkaError: If consumer startup, processing, or shutdown fails.
     """
-    stop_event = asyncio.Event()
+    stopEvent = asyncio.Event()
     loop = asyncio.get_running_loop()
-    for signal_name in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(signal_name, stop_event.set)
+    for signalName in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(signalName, stopEvent.set)
 
-    service = KafkaConsumerService(get_settings())
+    service = KafkaConsumerService(getSettings())
     await service.start()
     try:
-        await service.run(stop_event)
+        await service.run(stopEvent)
     finally:
         await service.stop()
 

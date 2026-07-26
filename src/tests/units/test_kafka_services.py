@@ -37,7 +37,7 @@ class FakeResultProducer:
     async def stop(self) -> None:
         self.events.append("result_producer_stopped")
 
-    async def publish_result(self, event: object) -> None:
+    async def publishResult(self, event: object) -> None:
         self.events.append("published")
         self.results.append(event)
 
@@ -65,10 +65,10 @@ async def test_producer_publishes_multiple_files_in_input_order(tmp_path: Path) 
     first.write_text(valid)
     second.write_text(valid)
     fake = FakeProducer()
-    service = KafkaProducerService(Settings(), producer_factory=lambda **_: fake)
+    service = KafkaProducerService(Settings(), producerFactory=lambda **_: fake)
 
     await service.start()
-    results = await service.publish_files([first, second], concurrency=2)
+    results = await service.publishFiles([first, second], concurrency=2)
     await service.stop()
 
     assert [result.filename for result in results] == ["first.txt", "second.txt"]
@@ -82,22 +82,22 @@ async def test_consumer_publishes_before_committing() -> None:
     fake_result_producer = FakeResultProducer(events)
     service = KafkaConsumerService(
         Settings(),
-        consumer_factory=lambda *_args, **_kwargs: fake_consumer,
-        result_producer=fake_result_producer,  # type: ignore[arg-type]
+        consumerFactory=lambda *_args, **_kwargs: fake_consumer,
+        resultProducer=fake_result_producer,  # type: ignore[arg-type]
     )
     request = KafkaAnalysisRequest(
-        request_id="d768e416-7cb7-419e-b11d-b6e94f813944",
+        requestId="d768e416-7cb7-419e-b11d-b6e94f813944",
         filename="traffic.txt",
         records=[
-            TrafficRecord(timestamp="2021-01-01T00:00:00", car_count=1),
-            TrafficRecord(timestamp="2021-01-01T00:30:00", car_count=2),
-            TrafficRecord(timestamp="2021-01-01T01:00:00", car_count=3),
+            TrafficRecord(timestamp="2021-01-01T00:00:00", carCount=1),
+            TrafficRecord(timestamp="2021-01-01T00:30:00", carCount=2),
+            TrafficRecord(timestamp="2021-01-01T01:00:00", carCount=3),
         ],
     )
     message = SimpleNamespace(value=request.model_dump_json().encode(), offset=4)
 
     await service.start()
-    await service._process_partition(
+    await service._processPartition(
         TopicPartition("traffic.analysis.requests", 0),
         [message],
     )
