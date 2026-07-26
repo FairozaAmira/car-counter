@@ -10,6 +10,8 @@ POSTGRES_DB ?= application
 POSTGRES_USER ?= application
 POSTGRES_PASSWORD ?= application-local
 POSTGRES_PORT ?= 5433
+TEST_POSTGRES_DB ?= application_test
+TEST_DATABASE_URL ?= postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(TEST_POSTGRES_DB)
 DOCKER_DATABASE_URL ?= postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(DOCKER_DATABASE_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)
 KAFKA_BOOTSTRAP_SERVER ?= localhost:29092
 KAFKA_REQUEST_TOPIC ?= traffic-analysis-requests
@@ -17,7 +19,7 @@ KAFKA_RESULT_TOPIC ?= traffic-analysis-results
 ALEMBIC_CONFIG ?= src/migrations/alembic.ini
 REVISION ?= -1
 
-.PHONY: install lock lock-check ci run analyze producer consumer test coverage test-coverage test-broker lint lint-fix format format-check type-check typecheck check db-upgrade db-downgrade db-revision db-current db-history migration-check docker-build docker-verify docker-run docker-stop docker-up docker-down kafka-topics
+.PHONY: install lock lock-check ci run analyze producer consumer test test-database coverage test-coverage test-broker lint lint-fix format format-check type-check typecheck check db-upgrade db-downgrade db-revision db-current db-history migration-check docker-build docker-verify docker-run docker-stop docker-up docker-down kafka-topics
 
 install:
 	uv sync --locked
@@ -42,6 +44,41 @@ consumer:
 
 test:
 	uv run pytest src/tests -m "not broker"
+
+test-database:
+	@case "$(TEST_POSTGRES_DB)" in \
+		*_test) ;; \
+		*) echo "TEST_POSTGRES_DB must end in _test."; exit 1 ;; \
+	esac
+	@case "$(TEST_POSTGRES_DB)" in \
+		*[!a-zA-Z0-9_]*) echo "TEST_POSTGRES_DB contains unsupported characters."; exit 1 ;; \
+	esac
+	docker compose up --detach --wait postgres
+	docker compose exec -T postgres psql \
+		--set ON_ERROR_STOP=1 \
+		--username $(POSTGRES_USER) \
+		--dbname postgres \
+		--command 'DROP DATABASE IF EXISTS "$(TEST_POSTGRES_DB)" WITH (FORCE);'
+	docker compose exec -T postgres psql \
+		--set ON_ERROR_STOP=1 \
+		--username $(POSTGRES_USER) \
+		--dbname postgres \
+		--command 'CREATE DATABASE "$(TEST_POSTGRES_DB)" OWNER $(POSTGRES_USER);'
+	@databaseTestStatus=0; \
+	DATABASE_URL=$(TEST_DATABASE_URL) uv run --locked alembic \
+		--config $(ALEMBIC_CONFIG) upgrade head || databaseTestStatus=$$?; \
+	if [ $$databaseTestStatus -eq 0 ]; then \
+		RUN_DATABASE_TESTS=1 DATABASE_URL=$(TEST_DATABASE_URL) \
+			uv run pytest src/tests/integration/test_postgres_persistence.py -q \
+			|| databaseTestStatus=$$?; \
+	fi; \
+	docker compose exec -T postgres psql \
+		--set ON_ERROR_STOP=1 \
+		--username $(POSTGRES_USER) \
+		--dbname postgres \
+		--command 'DROP DATABASE IF EXISTS "$(TEST_POSTGRES_DB)" WITH (FORCE);' \
+		|| databaseTestStatus=$$?; \
+	exit $$databaseTestStatus
 
 coverage:
 	uv run pytest src/tests -m "not broker" --cov=src --cov-report=term-missing --cov-report=xml

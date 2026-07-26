@@ -20,6 +20,30 @@ The analyzer returns total cars, chronological daily totals, the three busiest
 half-hours (earliest timestamp wins ties), and the quietest contiguous 90-minute
 period containing observations at `T`, `T+30m`, and `T+60m`.
 
+## Contents
+
+- [Project status](#project-status)
+- [Architecture](#architecture)
+  - [Code flow](#code-flow)
+- [Prerequisites and installation](#prerequisites-and-installation)
+- [API overview](#api-overview)
+- [Database and migrations](#database-and-migrations)
+  - [Local database setup](#local-database-setup)
+  - [Alembic commands](#alembic-commands)
+  - [Add a database column](#add-a-database-column)
+  - [Downgrade and remove a newly added column](#downgrade-and-remove-a-newly-added-column)
+- [Quality checks](#quality-checks)
+- [CLI and Kafka](#cli-and-kafka)
+- [Run locally](#run-locally)
+  - [Swagger UI](#swagger-ui)
+  - [Postman](#postman)
+- [Docker](#docker)
+- [Releases](#releases)
+- [Contributing](#contributing)
+- [Authors](#authors)
+- [License](#license)
+- [Troubleshooting](#troubleshooting)
+
 ## Project status
 
 The API, Kafka integration, local environment, automated tests, and delivery
@@ -340,6 +364,10 @@ Never use a production database for local development or tests.
      --command 'SELECT id, "analysisKind", "createdAt", "timeTaken", "totalCars", items FROM traffic_analysis_results ORDER BY "createdAt" DESC LIMIT 10;'
    ```
 
+   Copy the command exactly as shown. Do not use `ORDER BY created_at`: that
+   pre-migration column no longer exists. PostgreSQL requires the current
+   camelCase column to be written as `ORDER BY "createdAt"`.
+
    Inspect the live table definition and exact column names:
 
    ```bash
@@ -447,6 +475,7 @@ make format
 make format-check
 make type-check
 make test
+make test-database
 make coverage
 make migration-check
 make ci
@@ -458,14 +487,65 @@ from the standard suite because it requires a running Kafka service. A result su
 as `94 passed, 1 skipped, 1 deselected` therefore means the application suite
 passed while external database and Kafka tests were not executed.
 
-Run the PostgreSQL persistence integration test only against a disposable
-database whose name ends in `_test`:
+Run the PostgreSQL persistence integration test with the dedicated target:
 
 ```bash
-RUN_DATABASE_TESTS=1 \
-DATABASE_URL=postgresql+asyncpg://application:application@localhost:5432/application_test \
-make test
+# Correct local replacement for the stale RUN_DATABASE_TESTS command.
+make test-database
 ```
+
+This target starts the local Compose PostgreSQL service, recreates only the
+validated `application_test` database, applies all migrations, runs
+`test_postgres_persistence.py`, and drops the test database afterward. It uses
+the local defaults: user `application`, password `application-local`, and host
+port `5433`. Never point it at production.
+
+To run the same workflow manually, create and migrate the disposable database
+before setting `RUN_DATABASE_TESTS=1`:
+
+```bash
+docker compose up --detach --wait postgres
+
+docker compose exec -T postgres psql \
+  --username application \
+  --dbname postgres \
+  --command 'DROP DATABASE IF EXISTS application_test WITH (FORCE);'
+
+docker compose exec -T postgres psql \
+  --username application \
+  --dbname postgres \
+  --command 'CREATE DATABASE application_test OWNER application;'
+
+DATABASE_URL=postgresql+asyncpg://application:application-local@localhost:5433/application_test \
+make db-upgrade
+
+RUN_DATABASE_TESTS=1 \
+DATABASE_URL=postgresql+asyncpg://application:application-local@localhost:5433/application_test \
+make test
+
+docker compose exec -T postgres psql \
+  --username application \
+  --dbname postgres \
+  --command 'DROP DATABASE IF EXISTS application_test WITH (FORCE);'
+```
+
+The cleanup command permanently removes only `application_test` and its data.
+Confirm the `_test` suffix before running it.
+
+If `POSTGRES_USER`, `POSTGRES_PASSWORD`, or `POSTGRES_PORT` was overridden when
+the Compose volume was first created, pass those same values to the target:
+
+```bash
+make test-database \
+  POSTGRES_USER=<test-user> \
+  POSTGRES_PASSWORD=<test-password> \
+  POSTGRES_PORT=<test-port>
+```
+
+`TEST_POSTGRES_DB` must use only letters, numbers, and underscores and must end
+in `_test`. Changing Compose environment variables does not change credentials
+already stored in an existing PostgreSQL volume. Do not run the CI-only
+`application:application@localhost:5432` URL against the local Compose service.
 
 All GitHub Actions quality jobs execute `make ci`, which checks and installs
 locked dependencies before running the same ordered local quality gate. This
@@ -845,6 +925,10 @@ See [license.md](license.md) for the complete terms.
 - If readiness returns 503, check Redis and `RATE_LIMIT_REDIS_URL`.
 - If readiness returns 503 with PostgreSQL configured, check `DATABASE_URL`,
   database health, and `make db-current`.
+- If PostgreSQL reports `InvalidPasswordError`, verify that `DATABASE_URL` uses
+  the credentials and published host port of the running database. The local
+  Compose defaults are `application:application-local@localhost:5433`; the
+  `application:application@localhost:5432` URL is reserved for CI services.
 - If Alembic reports unapplied changes, run `make db-upgrade`; create a new
   revision for schema changes rather than editing an applied migration.
 - If startup rejects settings, ensure reload uses one worker, CORS has no wildcard,
