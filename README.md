@@ -257,6 +257,14 @@ columns, while arrays containing objects use PostgreSQL JSONB. A database write
 failure is rolled back and returned as HTTP 503 with the safe
 `ERR00020` code.
 
+The current persisted columns are `id`, `"analysisKind"`, `"createdAt"`,
+`"timeTaken"`, `"totalCars"`, `"dailyTotals"`, `"topHalfHours"`,
+`"leastCarsPeriodStart"`, `"leastCarsPeriodEnd"`,
+`"leastCarsPeriodTotalCars"`, `"leastCarsPeriodRecords"`, and `items`.
+PostgreSQL converts unquoted identifiers to lowercase, so every camelCase column
+must be enclosed in double quotes in SQL. For example, use `"createdAt"` rather
+than `createdAt` or `created_at`.
+
 All dates returned by the POST APIs use `DD-MM-YYYY`; traffic observations that
 require a time use `DD-MM-YYYY HH:MM:SS`. Uploaded machine-generated traffic files retain
 their existing `YYYY-MM-DDTHH:MM:SS` input format.
@@ -329,7 +337,16 @@ Never use a production database for local development or tests.
    docker compose exec -T postgres psql \
      --username application \
      --dbname application \
-     --command 'SELECT * FROM traffic_analysis_results ORDER BY "createdAt" DESC LIMIT 10;'
+     --command 'SELECT id, "analysisKind", "createdAt", "timeTaken", "totalCars", items FROM traffic_analysis_results ORDER BY "createdAt" DESC LIMIT 10;'
+   ```
+
+   Inspect the live table definition and exact column names:
+
+   ```bash
+   docker compose exec -T postgres psql \
+     --username application \
+     --dbname application \
+     --command '\d traffic_analysis_results'
    ```
 
 The PostgreSQL named volume preserves local data across `docker compose down`.
@@ -674,7 +691,7 @@ and replace `<response-id>`:
 docker compose exec -T postgres psql \
   --username application \
   --dbname application \
-  --command "SELECT id, \"analysisKind\", \"createdAt\", \"timeTaken\", \"totalCars\", \"dailyTotals\", \"topHalfHours\", \"leastCarsPeriodStart\", \"leastCarsPeriodEnd\", \"leastCarsPeriodTotalCars\", \"leastCarsPeriodRecords\", items FROM traffic_analysis_results WHERE id = '<response-id>';"
+  --command 'SELECT id, "analysisKind", "createdAt", "timeTaken", "totalCars", "dailyTotals", "topHalfHours", "leastCarsPeriodStart", "leastCarsPeriodEnd", "leastCarsPeriodTotalCars", "leastCarsPeriodRecords", items FROM traffic_analysis_results WHERE id = $$<response-id>$$;'
 ```
 
 The query should return exactly one row. If the local PostgreSQL database or user
@@ -686,7 +703,7 @@ Check the five most recently stored results:
 docker compose exec -T postgres psql \
   --username application \
   --dbname application \
-  --command 'SELECT * FROM traffic_analysis_results ORDER BY "createdAt" DESC LIMIT 5;'
+  --command 'SELECT id, "analysisKind", "createdAt", "timeTaken", "totalCars", items FROM traffic_analysis_results ORDER BY "createdAt" DESC LIMIT 5;'
 ```
 
 Example scalar result columns (JSONB list columns are omitted for readability):
